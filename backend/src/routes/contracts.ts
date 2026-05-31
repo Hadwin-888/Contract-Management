@@ -4,7 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db.js';
-import { AuthRequest, authenticateToken } from '../middleware/auth.js';
+import { AuthRequest, authenticateToken, hasRole, requireRole } from '../middleware/auth.js';
+import { buildDeptFilter, requireContractAccess } from '../middleware/permissions.js';
 import { extractContractInfo } from '../services/ai.js';
 import { readFileContent } from '../services/file-reader.js';
 
@@ -17,7 +18,7 @@ const router = Router();
 router.use(authenticateToken);
 
 // GET /api/contracts - List contracts with pagination & filters
-router.get('/', (req: AuthRequest, res: Response) => {
+router.get('/', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 10));
@@ -32,15 +33,10 @@ router.get('/', (req: AuthRequest, res: Response) => {
   let whereClause = 'WHERE is_audit_draft = 0';
   const params: unknown[] = [];
 
-  // Role-based filtering: clerk/head can only see contracts matching their department
-  if (req.role === 'clerk' || req.role === 'head') {
-    // Look up the user's department
-    const user = db.prepare('SELECT department FROM users WHERE id = ?').get(req.userId) as { department: string } | undefined;
-    if (user?.department) {
-      whereClause += ' AND follow_dept = ?';
-      params.push(user.department);
-    }
-  }
+  // Role-based filtering
+  const deptFilter = buildDeptFilter(req);
+  whereClause += deptFilter.clause;
+  params.push(...deptFilter.params);
 
   if (search) {
     whereClause += ' AND (name LIKE ? OR contract_no LIKE ?)';
@@ -83,7 +79,7 @@ router.get('/', (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/contracts/export — Export filtered contracts as CSV
-router.get('/export', (req: AuthRequest, res: Response) => {
+router.get('/export', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
   const search = (req.query.search as string) || '';
   const status = req.query.status as string;
@@ -96,14 +92,9 @@ router.get('/export', (req: AuthRequest, res: Response) => {
   let whereClause = 'WHERE is_audit_draft = 0';
   const params: unknown[] = [];
 
-  // Role-based filtering: clerk/head can only see contracts matching their department
-  if (req.role === 'clerk' || req.role === 'head') {
-    const user = db.prepare('SELECT department FROM users WHERE id = ?').get(req.userId) as { department: string } | undefined;
-    if (user?.department) {
-      whereClause += ' AND follow_dept = ?';
-      params.push(user.department);
-    }
-  }
+  const deptFilter = buildDeptFilter(req);
+  whereClause += deptFilter.clause;
+  params.push(...deptFilter.params);
 
   if (search) {
     whereClause += ' AND (name LIKE ? OR contract_no LIKE ?)';
@@ -138,7 +129,6 @@ router.get('/export', (req: AuthRequest, res: Response) => {
     `SELECT * FROM contracts ${whereClause} ORDER BY created_at DESC`
   ).all(...params) as Record<string, unknown>[];
 
-  // Status & risk level display mapping
   const statusLabels: Record<string, string> = {
     active: '进行中', expired: '已过期', draft: '草稿', terminated: '已终止',
   };
@@ -146,7 +136,6 @@ router.get('/export', (req: AuthRequest, res: Response) => {
     low: '低风险', medium: '中风险', high: '高风险',
   };
 
-  // Build CSV
   const headers = [
     '合同编号', '合同名称', '甲方', '乙方', '合同类型', '合同状态',
     '合同金额', '不含税金额', '税率(%)', '质保金情况',
@@ -174,7 +163,7 @@ router.get('/export', (req: AuthRequest, res: Response) => {
     ].map(escapeCsvField).join(','));
   }
 
-  const csvContent = '﻿' + csvRows.join('\n'); // BOM for Excel Chinese encoding
+  const csvContent = '﻿' + csvRows.join('\n');
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="contracts_export_${new Date().toISOString().slice(0, 10)}.csv"`);
@@ -184,7 +173,6 @@ router.get('/export', (req: AuthRequest, res: Response) => {
 function escapeCsvField(val: unknown): string {
   if (val === null || val === undefined) return '';
   const str = String(val);
-  // If contains comma, double-quote, or newline, wrap in double-quotes
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return '"' + str.replace(/"/g, '""') + '"';
   }
@@ -192,21 +180,16 @@ function escapeCsvField(val: unknown): string {
 }
 
 // GET /api/contracts/:id
-router.get('/:id', (req: AuthRequest, res: Response) => {
+router.get('/:id', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+  const id = req.params.id as string;
+  const contract = requireContractAccess(req, res, id);
+  if (!contract) return;
+
   const db = getDb();
-  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+  const uploads = db.prepare('SELECT * FROM uploads WHERE contract_id = ?').all(id);
+  const audits = db.prepare('SELECT * FROM audit_records WHERE contract_id = ? ORDER BY created_at DESC').all(id);
 
-  if (!contract) {
-    res.status(404).json({ error: '合同不存在' });
-    return;
-  }
-
-  // Get associated uploads
-  const uploads = db.prepare('SELECT * FROM uploads WHERE contract_id = ?').all(req.params.id);
-  // Get audit records
-  const audits = db.prepare('SELECT * FROM audit_records WHERE contract_id = ? ORDER BY created_at DESC').all(req.params.id);
-
-  res.json({ ...contract as object, uploads, audits });
+  res.json({ ...contract, uploads, audits });
 });
 
 // POST /api/contracts
@@ -220,6 +203,11 @@ router.post('/', (req: AuthRequest, res: Response) => {
     isAuditDraft,
   } = req.body;
 
+  if (!isAuditDraft && !hasRole(req, 'admin', 'super_admin')) {
+    res.status(403).json({ error: '权限不足，需要合同管理员或系统管理员角色' });
+    return;
+  }
+
   if (!name || !partyA || !partyB || !type || !startDate || !endDate) {
     res.status(400).json({ error: '请填写必要的合同信息' });
     return;
@@ -227,6 +215,12 @@ router.post('/', (req: AuthRequest, res: Response) => {
 
   const db = getDb();
   const id = uuidv4();
+  let finalFollowDept = followDept || '';
+
+  if (isAuditDraft && (req.role === 'clerk' || req.role === 'head')) {
+    const user = db.prepare('SELECT department FROM users WHERE id = ?').get(req.userId) as { department: string } | undefined;
+    finalFollowDept = user?.department || '';
+  }
 
   db.prepare(`
     INSERT INTO contracts (
@@ -244,7 +238,7 @@ router.post('/', (req: AuthRequest, res: Response) => {
     qualityDeposit || '', contractNo || '',
     startDate, endDate, contractTerm || '', riskLevel || 'low',
     insuranceInfo || '', insuranceDate || '',
-    followDept || '', costDept || '', costCode || '',
+    finalFollowDept, costDept || '', costCode || '',
     req.userId, isAuditDraft ? 1 : 0,
   );
 
@@ -253,15 +247,12 @@ router.post('/', (req: AuthRequest, res: Response) => {
 });
 
 // PUT /api/contracts/:id
-router.put('/:id', (req: AuthRequest, res: Response) => {
+router.put('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+  const id = req.params.id as string;
+  const contract = requireContractAccess(req, res, id);
+  if (!contract) return;
+
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM contracts WHERE id = ?').get(req.params.id);
-
-  if (!existing) {
-    res.status(404).json({ error: '合同不存在' });
-    return;
-  }
-
   const {
     name, partyA, partyB, type, status, amount,
     amountExcludingTax, taxRate, qualityDeposit, contractNo,
@@ -287,25 +278,22 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
     req.params.id,
   );
 
-  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
-  res.json(contract);
+  const updated = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+  res.json(updated);
 });
 
 // DELETE /api/contracts/:id
-router.delete('/:id', (req: AuthRequest, res: Response) => {
+router.delete('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+  const id = req.params.id as string;
+  const contract = requireContractAccess(req, res, id);
+  if (!contract) return;
+
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM contracts WHERE id = ?').get(req.params.id);
-
-  if (!existing) {
-    res.status(404).json({ error: '合同不存在' });
-    return;
-  }
-
-  db.prepare('DELETE FROM contracts WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM contracts WHERE id = ?').run(id);
   res.json({ message: '合同已删除' });
 });
 
-// POST /api/contracts/ai-extract — Extract contract info from uploaded file using AI
+// POST /api/contracts/ai-extract
 router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
   const { contractId, filePath } = req.body;
 
@@ -315,17 +303,12 @@ router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
   }
 
   const db = getDb();
-
-  // Determine the file path
   let targetPath = filePath;
   let contractType = '采购';
 
   if (contractId) {
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
-    if (!contract) {
-      res.status(404).json({ error: '合同不存在' });
-      return;
-    }
+    const contract = requireContractAccess(req, res, contractId);
+    if (!contract) return;
     targetPath = contract.file_path as string || targetPath;
     contractType = contract.type as string || '采购';
   }
@@ -335,7 +318,6 @@ router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  // Read file content
   const fullPath = path.join(uploadDir, targetPath);
   if (!fs.existsSync(fullPath)) {
     res.status(404).json({ error: '文件不存在' });
@@ -359,7 +341,6 @@ router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
   try {
     const extracted = await extractContractInfo(fileContent, contractType);
 
-    // Update contract if contractId provided
     if (contractId) {
       db.prepare(`
         UPDATE contracts SET

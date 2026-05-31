@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useContractsStore } from '@/stores/contracts'
+import type { ContractStatus, RiskLevel } from '@/types'
 
 // Mock the API module
 vi.mock('@/api/contracts', () => ({
@@ -34,8 +35,8 @@ describe('Contracts Store', () => {
   it('should fetch contracts and update state', async () => {
     const mockData = {
       items: [
-        { id: '1', name: '合同1', status: 'active', amount: 100000 },
-        { id: '2', name: '合同2', status: 'draft', amount: 200000 },
+        { id: '1', name: '合同1', partyA: '甲方', partyB: '乙方', type: '采购', status: 'active' as ContractStatus, amount: 100000, startDate: '2024-01-01', endDate: '2024-12-31', riskLevel: 'low' as RiskLevel, createdAt: '2024-01-01' },
+        { id: '2', name: '合同2', partyA: '甲方', partyB: '乙方', type: '服务', status: 'draft' as ContractStatus, amount: 200000, startDate: '2024-01-01', endDate: '2024-12-31', riskLevel: 'low' as RiskLevel, createdAt: '2024-01-01' },
       ],
       total: 2,
       page: 1,

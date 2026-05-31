@@ -208,12 +208,12 @@ function renderMarkdown(md: string): string {
             <FileText :size="20" />
           </div>
           <div class="card-info">
-            <span class="card-type">{{ entry.template.name }}</span>
+            <span class="card-type">{{ entry.template!.name }}</span>
             <span class="card-status">
               <span class="status-dot configured"></span>
-              已配置 (v{{ entry.template.version }})
+              已配置 (v{{ entry.template!.version }})
             </span>
-            <span v-if="entry.template.summary_content" class="card-summary-badge">
+            <span v-if="entry.template!.summary_content" class="card-summary-badge">
               <FileSpreadsheet :size="11" /> 已配置概况
             </span>
           </div>

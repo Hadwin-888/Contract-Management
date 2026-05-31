@@ -111,7 +111,7 @@ async function handleDelete(id: string) {
           </el-table-column>
           <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
-              <el-button text size="small" type="primary" @click="openEdit(row)">
+              <el-button text size="small" type="primary" @click="openEdit(row as unknown as Department)">
                 <Edit :size="13" /> 编辑
               </el-button>
               <el-popconfirm title="确定删除此部门？" @confirm="handleDelete(row.id)">

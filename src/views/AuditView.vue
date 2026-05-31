@@ -12,8 +12,10 @@ import { fetchAuditRecords, analyzeContract as apiAnalyzeContract } from '@/api/
 import { createContract } from '@/api/contracts'
 import { uploadFile } from '@/api/upload'
 import { fetchTemplates } from '@/api/templates'
+import { useAuthStore } from '@/stores/auth'
 import type { AuditRecord } from '@/api/audit'
 
+const authStore = useAuthStore()
 const records = ref<AuditRecord[]>([])
 const loading = ref(false)
 const analyzing = ref(false)
@@ -21,6 +23,7 @@ const selectedRecord = ref<AuditRecord | null>(null)
 const drawerVisible = ref(false)
 const total = ref(0)
 const page = ref(1)
+const canAuditExistingContracts = computed(() => authStore.hasPermission('contracts'))
 
 // File types from audit config
 interface FileTypeOption {
@@ -312,7 +315,7 @@ function removeFile() {
           <p class="page-desc">上传合同文件，AI 智能审核与风险分析</p>
         </div>
         <div class="header-actions">
-          <el-button size="large" class="action-btn" @click="triggerAnalysis" :loading="analyzing">
+          <el-button v-if="canAuditExistingContracts" size="large" class="action-btn" @click="triggerAnalysis" :loading="analyzing">
             <Sparkles :size="18" />
             <span>审核已有合同</span>
           </el-button>

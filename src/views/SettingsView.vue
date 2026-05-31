@@ -122,13 +122,10 @@ async function changePassword() {
 }
 
 // Check permissions for sub-page tabs
-const canManageUsers = computed(() => authStore.user?.role === 'super_admin')
-const canManageAuditConfig = computed(() => {
-  const r = authStore.user?.role
-  return r === 'admin' || r === 'super_admin'
-})
-const canManageDepartments = computed(() => authStore.user?.role === 'super_admin')
-const canManageStorage = computed(() => authStore.user?.role === 'super_admin')
+const canManageUsers = computed(() => authStore.hasPermission('users'))
+const canManageAuditConfig = computed(() => authStore.hasPermission('audit-config'))
+const canManageDepartments = computed(() => authStore.hasPermission('departments'))
+const canManageStorage = computed(() => authStore.hasPermission('storage'))
 </script>
 
 <template>

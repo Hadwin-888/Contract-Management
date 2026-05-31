@@ -7,7 +7,7 @@ const router = Router();
 router.use(authenticateToken);
 
 // GET /api/ai-config — get AI configuration (admin+ can read)
-router.get('/', (req: AuthRequest, res: Response) => {
+router.get('/', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
 
   // Check if ai_config table exists, create if not
@@ -31,12 +31,18 @@ router.get('/', (req: AuthRequest, res: Response) => {
   };
 
   for (const c of configs) {
-    result[c.key] = c.value;
+    // Mask API keys for non-super_admin users
+    if (req.role !== 'super_admin' && (c.key === 'deepseekApiKey' || c.key === 'minimaxApiKey' || c.key === 'qwenApiKey')) {
+      result[c.key] = c.value ? c.value.slice(0, 4) + '****' + c.value.slice(-4) : '';
+    } else {
+      result[c.key] = c.value;
+    }
   }
 
-  // Fallback to env vars
+  // Fallback to env vars (masked for non-super_admin)
   if (!result.deepseekApiKey && process.env.DEEPSEEK_API_KEY) {
-    result.deepseekApiKey = process.env.DEEPSEEK_API_KEY;
+    const key = process.env.DEEPSEEK_API_KEY;
+    result.deepseekApiKey = req.role === 'super_admin' ? key : key.slice(0, 4) + '****' + key.slice(-4);
   }
 
   res.json(result);

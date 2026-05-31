@@ -6,8 +6,8 @@ const router = Router();
 
 router.use(authenticateToken);
 
-// GET /api/storage-config — get storage configuration
-router.get('/', (req: AuthRequest, res: Response) => {
+// GET /api/storage-config — get storage configuration (super_admin only)
+router.get('/', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
   const configs = db.prepare('SELECT key, value FROM storage_config').all() as { key: string; value: string }[];
 

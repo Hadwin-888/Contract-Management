@@ -1,7 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import type { Permission } from '@/types/user'
+import type { Permission, Role } from '@/types/user'
+
+const ROLE_DEFAULT_ROUTES: Record<Role, string> = {
+  clerk: '/audit',
+  head: '/dashboard',
+  admin: '/dashboard',
+  super_admin: '/dashboard',
+}
+
+function getDefaultRoute() {
+  const authStore = useAuthStore()
+  const role = authStore.user?.role
+  if (role) return ROLE_DEFAULT_ROUTES[role]
+  return '/login'
+}
 
 const routes: RouteRecordRaw[] = [
   {
@@ -65,13 +79,13 @@ const routes: RouteRecordRaw[] = [
         path: 'departments',
         name: 'DepartmentSettings',
         component: () => import('@/views/settings/DepartmentSettingsView.vue'),
-        meta: { requiresAuth: true, permission: 'settings' as Permission },
+        meta: { requiresAuth: true, permission: 'departments' as Permission },
       },
       {
         path: 'storage',
         name: 'FileStorage',
         component: () => import('@/views/settings/FileStorageView.vue'),
-        meta: { requiresAuth: true, permission: 'settings' as Permission },
+        meta: { requiresAuth: true, permission: 'storage' as Permission },
       },
     ],
   },
@@ -92,7 +106,7 @@ router.beforeEach((to, _from, next) => {
   }
 
   if (to.path === '/login' && token) {
-    next('/dashboard')
+    next(getDefaultRoute())
     return
   }
 
@@ -101,7 +115,7 @@ router.beforeEach((to, _from, next) => {
     const authStore = useAuthStore()
     const permission = to.meta.permission as Permission | undefined
     if (permission && !authStore.hasPermission(permission)) {
-      next('/dashboard')
+      next(getDefaultRoute())
       return
     }
   }

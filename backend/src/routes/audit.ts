@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken } from '../middleware/auth.js';
+import { buildDeptFilter, requireContractAccess, canAccessContract } from '../middleware/permissions.js';
 import { analyzeContract, generateSummary, extractContractInfo } from '../services/ai.js';
 import { readFileContent } from '../services/file-reader.js';
 
@@ -15,22 +16,30 @@ const router = Router();
 
 router.use(authenticateToken);
 
-// GET /api/audit — list audit records
+// GET /api/audit — list audit records (with dept filtering)
 router.get('/', (req: AuthRequest, res: Response) => {
   const db = getDb();
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
 
-  const total = (db.prepare('SELECT COUNT(*) as count FROM audit_records').get() as { count: number }).count;
-  const offset = (page - 1) * pageSize;
+  const deptFilter = buildDeptFilter(req);
 
+  const countResult = db.prepare(`
+    SELECT COUNT(*) as count FROM audit_records a
+    JOIN contracts c ON a.contract_id = c.id
+    WHERE 1=1${deptFilter.clause}
+  `).get(...deptFilter.params) as { count: number };
+  const total = countResult.count;
+
+  const offset = (page - 1) * pageSize;
   const items = db.prepare(`
     SELECT a.*, c.name as contract_name
     FROM audit_records a
-    LEFT JOIN contracts c ON a.contract_id = c.id
+    JOIN contracts c ON a.contract_id = c.id
+    WHERE 1=1${deptFilter.clause}
     ORDER BY a.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(pageSize, offset);
+  `).all(...deptFilter.params, pageSize, offset);
 
   res.json({ items, total, page, pageSize });
 });
@@ -43,14 +52,25 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
     FROM audit_records a
     LEFT JOIN contracts c ON a.contract_id = c.id
     WHERE a.id = ?
-  `).get(req.params.id);
+  `).get(req.params.id) as Record<string, unknown> | undefined;
 
   if (!record) {
     res.status(404).json({ error: '审核记录不存在' });
     return;
   }
 
-  const result = record as Record<string, unknown>;
+  // Check access to the associated contract
+  const contractId = record.contract_id as string;
+  if (contractId) {
+    const db2 = getDb();
+    const contract = db2.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
+    if (contract && !canAccessContract(req, contract)) {
+      res.status(403).json({ error: '无权访问该审核记录' });
+      return;
+    }
+  }
+
+  const result = record;
   if (typeof result.suggestions === 'string') {
     try {
       result.suggestions = JSON.parse(result.suggestions as string);
@@ -62,7 +82,7 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
   res.json(result);
 });
 
-// POST /api/audit/analyze — trigger AI analysis with optional MD template
+// POST /api/audit/analyze — trigger AI analysis
 router.post('/analyze', async (req: AuthRequest, res: Response) => {
   const { contractId } = req.body;
 
@@ -71,22 +91,17 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
+  const contract = requireContractAccess(req, res, contractId);
+  if (!contract) return;
 
-  if (!contract) {
-    res.status(404).json({ error: '合同不存在' });
-    return;
-  }
+  const db = getDb();
 
   try {
-    // Look up audit template by contract type
     const template = db.prepare('SELECT * FROM audit_templates WHERE contract_type = ?').get(contract.type as string) as { id: string; content: string; summary_content: string; version: number } | undefined;
 
     let templateId: string | null = null;
     let templateVersion: number | null = null;
 
-    // Read uploaded file content if available
     let fileContent = '';
     const filePath = contract.file_path as string | null;
     if (filePath) {
@@ -100,16 +115,13 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Extract contract info from file content using AI
     if (fileContent) {
       try {
         const extracted = await extractContractInfo(fileContent, contract.type as string);
-        // Update contract with extracted info
         db.prepare(`
           UPDATE contracts SET name=?, party_a=?, party_b=?, amount=?, start_date=?, end_date=?
           WHERE id=?
         `).run(extracted.name, extracted.partyA, extracted.partyB, extracted.amount, extracted.startDate, extracted.endDate, contractId);
-        // Refresh contract data
         contract.name = extracted.name;
         contract.party_a = extracted.partyA;
         contract.party_b = extracted.partyB;
@@ -121,7 +133,6 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Build the analysis prompt with template if available
     const analysis = await analyzeContract(
       {
         name: contract.name as string,
@@ -135,7 +146,6 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       template?.content,
     );
 
-    // Also generate file summary from uploaded file content
     let summary = '';
     try {
       summary = await generateSummary(

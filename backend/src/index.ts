@@ -31,8 +31,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// Uploaded files are served via the authenticated /api/upload/file/* route
 
 // Routes
 app.use('/api/auth', authRoutes);

@@ -56,6 +56,10 @@ export function requireRole(...allowedRoles: Role[]) {
   };
 }
 
+export function hasRole(req: AuthRequest, ...allowedRoles: Role[]): boolean {
+  return !!req.role && allowedRoles.includes(req.role);
+}
+
 export function generateToken(userId: string, username: string, role: Role = 'clerk'): string {
   return jwt.sign({ userId, username, role }, JWT_SECRET, { expiresIn: '7d' });
 }

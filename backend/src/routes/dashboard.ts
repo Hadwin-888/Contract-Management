@@ -1,45 +1,61 @@
 import { Router, Response } from 'express';
 import { getDb } from '../db.js';
-import { AuthRequest, authenticateToken } from '../middleware/auth.js';
+import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
+import { buildDeptFilter } from '../middleware/permissions.js';
 
 const router = Router();
 
 router.use(authenticateToken);
 
 // GET /api/dashboard/stats
-router.get('/stats', (_req: AuthRequest, res: Response) => {
+router.get('/stats', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
+  const deptFilter = buildDeptFilter(req);
+  const joinedDeptClause = deptFilter.clause.replace('follow_dept', 'c.follow_dept');
+  const activeWhere = `WHERE is_audit_draft = 0${deptFilter.clause}`;
+  const statusWhere = (status: string) => `WHERE is_audit_draft = 0 AND status = '${status}'${deptFilter.clause}`;
 
-  const totalContracts = (db.prepare('SELECT COUNT(*) as count FROM contracts').get() as { count: number }).count;
-  const activeContracts = (db.prepare("SELECT COUNT(*) as count FROM contracts WHERE status = 'active'").get() as { count: number }).count;
-  const draftContracts = (db.prepare("SELECT COUNT(*) as count FROM contracts WHERE status = 'draft'").get() as { count: number }).count;
+  const totalContracts = (db.prepare(`SELECT COUNT(*) as count FROM contracts ${activeWhere}`).get(...deptFilter.params) as { count: number }).count;
+  const activeContracts = (db.prepare(`SELECT COUNT(*) as count FROM contracts ${statusWhere('active')}`).get(...deptFilter.params) as { count: number }).count;
+  const draftContracts = (db.prepare(`SELECT COUNT(*) as count FROM contracts ${statusWhere('draft')}`).get(...deptFilter.params) as { count: number }).count;
 
   // Expiring within 30 days
   const expiringSoon = db.prepare(`
     SELECT COUNT(*) as count FROM contracts
-    WHERE status = 'active'
+    WHERE is_audit_draft = 0
+    AND status = 'active'
     AND end_date BETWEEN date('now') AND date('now', '+30 days')
-  `).get() as { count: number };
+    ${deptFilter.clause}
+  `).get(...deptFilter.params) as { count: number };
 
   // Average risk score from audit records
-  const avgRisk = db.prepare('SELECT AVG(risk_score) as avg FROM audit_records').get() as { avg: number | null };
+  const avgRisk = db.prepare(`
+    SELECT AVG(a.risk_score) as avg
+    FROM audit_records a
+    JOIN contracts c ON a.contract_id = c.id
+    WHERE c.is_audit_draft = 0${joinedDeptClause}
+  `).get(...deptFilter.params) as { avg: number | null };
   const riskScore = avgRisk.avg ? Math.round(avgRisk.avg) : 75;
 
   // Expiring contracts list (next 5)
   const expiringContracts = db.prepare(`
     SELECT * FROM contracts
-    WHERE status = 'active'
+    WHERE is_audit_draft = 0
+    AND status = 'active'
+    ${deptFilter.clause}
     ORDER BY end_date ASC
     LIMIT 5
-  `).all();
+  `).all(...deptFilter.params);
 
   // Recent uploads (last 5)
   const recentUploads = (db.prepare(`
     SELECT u.id, u.original_name as name, u.uploaded_at, u.size
     FROM uploads u
+    JOIN contracts c ON u.contract_id = c.id
+    WHERE c.is_audit_draft = 0${joinedDeptClause}
     ORDER BY u.uploaded_at DESC
     LIMIT 5
-  `).all() as { id: string; name: string; uploaded_at: string; size: number }[]).map((u) => ({
+  `).all(...deptFilter.params) as { id: string; name: string; uploaded_at: string; size: number }[]).map((u) => ({
     id: u.id,
     name: u.name,
     uploadTime: timeAgo(u.uploaded_at),
@@ -47,9 +63,21 @@ router.get('/stats', (_req: AuthRequest, res: Response) => {
   }));
 
   // Audit status counts
-  const auditPassed = (db.prepare("SELECT COUNT(*) as count FROM audit_records WHERE status = 'pass'").get() as { count: number }).count;
-  const auditFailed = (db.prepare("SELECT COUNT(*) as count FROM audit_records WHERE status = 'fail'").get() as { count: number }).count;
-  const auditPending = (db.prepare("SELECT COUNT(*) as count FROM audit_records WHERE status = 'pending'").get() as { count: number }).count;
+  const auditPassed = (db.prepare(`
+    SELECT COUNT(*) as count FROM audit_records a
+    JOIN contracts c ON a.contract_id = c.id
+    WHERE a.status = 'pass' AND c.is_audit_draft = 0${joinedDeptClause}
+  `).get(...deptFilter.params) as { count: number }).count;
+  const auditFailed = (db.prepare(`
+    SELECT COUNT(*) as count FROM audit_records a
+    JOIN contracts c ON a.contract_id = c.id
+    WHERE a.status = 'fail' AND c.is_audit_draft = 0${joinedDeptClause}
+  `).get(...deptFilter.params) as { count: number }).count;
+  const auditPending = (db.prepare(`
+    SELECT COUNT(*) as count FROM audit_records a
+    JOIN contracts c ON a.contract_id = c.id
+    WHERE a.status = 'pending' AND c.is_audit_draft = 0${joinedDeptClause}
+  `).get(...deptFilter.params) as { count: number }).count;
 
   res.json({
     stats: {
@@ -70,7 +98,7 @@ router.get('/stats', (_req: AuthRequest, res: Response) => {
 });
 
 // GET /api/dashboard/statistics — full statistics for the statistics page
-router.get('/statistics', (req: AuthRequest, res: Response) => {
+router.get('/statistics', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
 
   const dateRange = (req.query.range as string) || 'year';
