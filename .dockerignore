@@ -1,0 +1,9 @@
+node_modules
+.git
+*.md
+.DS_Store
+.vscode
+.env.local
+backend/data/
+backend/node_modules
+backend/.env
