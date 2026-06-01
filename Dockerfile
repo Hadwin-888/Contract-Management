@@ -1,24 +1,8 @@
-# Build stage
-FROM node:20-alpine AS build
+# Production stage — use locally pre-built dist
+FROM nginx:stable-alpine
 
-WORKDIR /app
-
-# Use Aliyun npm mirror
-RUN npm config set registry https://registry.npmmirror.com
-
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm ci
-
-# Copy source and build
-COPY . .
-RUN npm run build
-
-# Production stage
-FROM nginx:stable-alpine AS production
-
-# Copy built assets
-COPY --from=build /app/dist /usr/share/nginx/html
+# Copy built assets (pre-built locally to avoid rolldown x86_64 crash)
+COPY dist /usr/share/nginx/html
 
 # Copy nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
