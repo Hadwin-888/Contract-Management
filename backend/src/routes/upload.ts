@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken } from '../middleware/auth.js';
-import { requireContractAccess } from '../middleware/permissions.js';
+import { requireContractAccess, canAccessContract } from '../middleware/permissions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads');
@@ -121,7 +121,6 @@ router.post('/', upload.single('file'), (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: '合同不存在' });
       return;
     }
-    const { canAccessContract } = require('../middleware/permissions.js') as any;
     if (!canAccessContract(req, contract)) {
       fs.unlink(req.file.path, () => {});
       res.status(403).json({ error: '无权为该合同上传文件' });
@@ -191,7 +190,6 @@ router.get('/file/*', (req: AuthRequest, res: Response) => {
   if (upload?.contract_id) {
     const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(upload.contract_id) as Record<string, unknown> | undefined;
     if (contract) {
-      const { canAccessContract } = require('../middleware/permissions.js') as any;
       if (!canAccessContract(req, contract)) {
         res.status(403).json({ error: '无权访问该文件' });
         return;
@@ -204,6 +202,7 @@ router.get('/file/*', (req: AuthRequest, res: Response) => {
 
 // Error handling for multer
 router.use((err: Error, _req: AuthRequest, res: Response, _next: () => void) => {
+  console.error('Upload error:', err.message);
   if (err.message?.includes('不支持的文件类型')) {
     res.status(400).json({ error: err.message });
   } else if (err.message?.includes('File too large')) {
