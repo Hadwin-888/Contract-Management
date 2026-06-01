@@ -2,8 +2,14 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Use Aliyun mirror for apk
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # Install build dependencies for better-sqlite3
 RUN apk add --no-cache python3 make g++
+
+# Use Aliyun npm mirror
+RUN npm config set registry https://registry.npmmirror.com
 
 COPY package*.json ./
 RUN npm ci
@@ -17,6 +23,9 @@ RUN npx tsc
 FROM node:20-alpine
 
 WORKDIR /app
+
+# Use Aliyun mirror for apk
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # Install runtime dependencies for better-sqlite3
 RUN apk add --no-cache python3 make g++
