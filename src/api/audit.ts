@@ -30,6 +30,9 @@ export async function fetchAuditRecord(id: string): Promise<AuditRecord> {
 }
 
 export async function analyzeContract(contractId: string): Promise<AuditRecord> {
-  const response = await apiClient.post('/audit/analyze', { contractId })
+  // AI analysis can take 60-120s for complex contracts. Override the default 15s timeout.
+  const response = await apiClient.post('/audit/analyze', { contractId }, {
+    timeout: 180000, // 3 minutes
+  })
   return response.data
 }
