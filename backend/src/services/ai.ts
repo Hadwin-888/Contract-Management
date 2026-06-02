@@ -227,6 +227,9 @@ export async function analyzeContract(
     jsonStr = objectMatch[0];
   }
 
+  // Sanitize: replace control characters (except \n, \r, \t) that break JSON.parse
+  jsonStr = jsonStr.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+
   try {
     const result = JSON.parse(jsonStr);
     return {
@@ -237,6 +240,25 @@ export async function analyzeContract(
       suggestions: result.suggestions ?? ['请手动检查合同条款'],
     };
   } catch (parseError) {
+    // Last resort: try to extract fields using regex
+    console.error('JSON parse failed, trying regex fallback...');
+    try {
+      const riskMatch = jsonStr.match(/"riskScore"\s*:\s*(\d+)/);
+      const issuesMatch = jsonStr.match(/"issuesCount"\s*:\s*(\d+)/);
+      const statusMatch = jsonStr.match(/"status"\s*:\s*"(pass|warning|fail)"/);
+      const analysisMatch = jsonStr.match(/"analysis"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      const suggestionsMatch = jsonStr.match(/"suggestions"\s*:\s*(\[[\s\S]*?\])/);
+
+      if (riskMatch || statusMatch) {
+        return {
+          riskScore: riskMatch ? parseInt(riskMatch[1]) : 60,
+          issuesCount: issuesMatch ? parseInt(issuesMatch[1]) : 0,
+          status: (statusMatch ? statusMatch[1] : 'warning') as 'pass' | 'warning' | 'fail',
+          analysis: analysisMatch ? analysisMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : '分析完成。',
+          suggestions: suggestionsMatch ? (() => { try { return JSON.parse(suggestionsMatch[1]); } catch { return ['请手动检查合同条款']; } })() : ['请手动检查合同条款'],
+        };
+      }
+    } catch { /* fall through to throw */ }
     console.error('JSON parse failed, raw content:', jsonStr.slice(0, 300));
     throw new Error('AI 返回的 JSON 格式无效');
   }
@@ -386,6 +408,9 @@ ${fileContent.slice(0, 8000)}
   if (objectMatch) {
     jsonStr = objectMatch[0];
   }
+
+  // Sanitize: replace control characters that break JSON.parse
+  jsonStr = jsonStr.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 
   try {
     const result = JSON.parse(jsonStr);
