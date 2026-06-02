@@ -8,8 +8,8 @@ import mammoth from 'mammoth';
  * Extract text content from a .doc file using catdoc or antiword.
  */
 function extractDocText(filePath: string): string {
-  // Try catdoc first (most reliable on Linux), then antiword
-  const tools = ['catdoc', 'antiword'];
+  // Try antiword first (available on Alpine), then fallback
+  const tools = ['antiword', 'catdoc'];
   for (const tool of tools) {
     try {
       const result = execSync(`${tool} "${filePath}"`, {
