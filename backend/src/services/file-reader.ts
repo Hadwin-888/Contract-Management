@@ -35,7 +35,13 @@ except:
     pass
 
 if texts:
-    print('\\n'.join(texts[:500]))
+    # Join all lines and clean up leading garbage (Word binary header)
+    result = '\\n'.join(texts)
+    # Find the first meaningful Chinese line to strip binary header
+    match = re.search(r'[\\u4e00-\\u9fff]{2,}', result)
+    if match:
+        result = result[match.start():]
+    print(result)
     sys.exit(0)
 
 # Method 2: Binary scan for Chinese text sequences
