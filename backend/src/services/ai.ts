@@ -326,8 +326,8 @@ ${fileContent.slice(0, 8000)}
   if (modelConfig.modelName !== 'MiniMax-M3') {
     extractOptions.response_format = { type: 'json_object' };
   } else {
-    prompt += '\n\n请务必只返回纯JSON，不要包含任何markdown标记、代码块或额外说明。';
-    extractOptions.messages = [{ role: 'user', content: prompt }];
+    const enhancedPrompt = prompt + '\n\n请务必只返回纯JSON，不要包含任何markdown标记、代码块或额外说明。';
+    extractOptions.messages = [{ role: 'user', content: enhancedPrompt }];
   }
 
   const response = await retryAiCall(async () => {
