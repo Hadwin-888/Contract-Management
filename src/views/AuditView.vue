@@ -163,6 +163,35 @@ async function triggerAnalysis() {
   }
 }
 
+function renderMarkdown(md: string): string {
+  if (!md) return ''
+  let html = md
+    // Escape HTML
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // Headers
+    .replace(/^#### (.*$)/gm, '<h4>$1</h4>')
+    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+    // Bold
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    // Inline code
+    .replace(/`(.*?)`/g, '<code>$1</code>')
+    // Unordered lists
+    .replace(/^- (.*$)/gm, '<li>$1</li>')
+    // Ordered lists
+    .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
+    // Line breaks
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>')
+  html = '<p>' + html + '</p>'
+  // Wrap consecutive <li> in <ul>
+  html = html.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>')
+  return html
+}
+
 function viewDetail(record: AuditRecord) {
   selectedRecord.value = record
   drawerVisible.value = true
@@ -501,7 +530,7 @@ function removeFile() {
 
           <div class="drawer-section">
             <h4 class="drawer-title">AI分析结果</h4>
-            <p class="analysis-text">{{ selectedRecord.analysis }}</p>
+            <div class="analysis-text" v-html="renderMarkdown(selectedRecord.analysis)"></div>
           </div>
 
           <div class="drawer-section">
@@ -749,9 +778,47 @@ function removeFile() {
 
 .analysis-text {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.8;
   color: var(--text-secondary);
   margin: 0;
+}
+.analysis-text h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 20px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--apple-blue);
+}
+.analysis-text h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 16px 0 8px;
+}
+.analysis-text h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 12px 0 6px;
+}
+.analysis-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.analysis-text ul {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.analysis-text li {
+  margin-bottom: 4px;
+  line-height: 1.6;
+}
+.analysis-text code {
+  background: rgba(0,0,0,0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
 }
 
 .suggestion-list {

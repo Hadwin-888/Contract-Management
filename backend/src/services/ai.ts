@@ -153,22 +153,41 @@ export async function analyzeContract(
 `;
 
   if (fileContent) {
-    prompt += `以下是合同文件的具体内容，请基于此内容结合审核规则进行详细审核：\n\n${fileContent.slice(0, 4000)}\n\n---\n\n`;
+    prompt += `以下是合同文件的具体内容，请基于此内容结合审核规则进行详细审核：\n\n${fileContent.slice(0, 6000)}\n\n---\n\n`;
   }
 
   prompt += `请以JSON格式返回分析结果，包含以下字段：
 1. riskScore: 风险评分（0-100，越高越安全）
 2. issuesCount: 发现的问题数量
 3. status: "pass"（通过，≥70分）、"warning"（警告，50-69分）或"fail"（未通过，<50分）
-4. analysis: 详细分析报告（中文，200-300字），请引用合同具体条款进行分析
-5. suggestions: 改进建议数组（3-5条具体建议）
+4. analysis: 详细分析报告，使用Markdown格式，按以下结构输出：
 
-请只返回JSON，不要包含其他内容。`;
+## 一、总体评价
+（对合同的整体评价，1-2句话）
+
+## 二、问题清单
+按严重程度列出问题，每个问题格式：
+### 🔴 严重问题 / 🟡 中等问题 / 🟢 轻微问题
+**1. 问题标题**
+- **所在条款：** （条款位置）
+- **原文：** （引用原文）
+- **风险分析：** （分析风险）
+- **修改建议：** （具体建议）
+
+## 三、亮点评价
+（列出合同中的优点）
+
+## 四、补充建议
+（其他建议）
+
+5. suggestions: 改进建议数组（3-5条简短建议）
+
+请只返回JSON，不要包含其他内容。analysis字段请使用完整的Markdown格式。`;
 
   // Build request options - some models (MiniMax) don't support response_format
   const requestOptions: any = {
     model: modelConfig.modelName,
-    max_tokens: 2048,
+    max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   };
 
