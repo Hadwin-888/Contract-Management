@@ -75,7 +75,7 @@ function getModelConfig(): ModelConfig {
     },
     minimax: {
       baseURL: 'https://api.minimax.chat/v1',
-      modelName: 'abab6.5s-chat',
+      modelName: 'MiniMax-M3',
       envKey: 'minimaxApiKey',
     },
     qwen: {
