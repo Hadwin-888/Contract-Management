@@ -8,52 +8,75 @@ import mammoth from 'mammoth';
  * Extract text content from a .doc file using catdoc or antiword.
  */
 function extractDocText(filePath: string): string {
-  // Try antiword first (available on Alpine), then fallback
-  const tools = ['antiword', 'catdoc'];
-  for (const tool of tools) {
-    try {
-      const result = execSync(`${tool} "${filePath}"`, {
-        timeout: 30000,
-        encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      const text = result.toString().trim();
-      if (text.length > 50) {
-        console.log(`Extracted ${text.length} chars from .doc using ${tool}`);
-        return text;
-      }
-    } catch {
-      // try next tool
-    }
-  }
-  // Fallback: try python3 with olefile
+  // Use python3 with a smarter extraction — handles Chinese .doc files well
   try {
-    const result = execSync(`python3 -c "
-import sys, struct
+    const escapedPath = filePath.replace(/'/g, "'\\''");
+    const result = execSync(`python3 << 'PYEOF'
+import sys, re
+
+with open('${escapedPath}', 'rb') as f:
+    data = f.read()
+
+# Method 1: Extract UTF-16LE text (common in .doc files)
+texts = []
 try:
-    with open('${filePath.replace(/'/g, "'\\''")}', 'rb') as f:
-        data = f.read()
-    # Try to extract readable text from binary .doc
-    text = ''
-    i = 0
-    while i < len(data):
-        b = data[i]
-        if 0x20 <= b <= 0x7e or b in (0x0a, 0x0d, 0x09) or b >= 0x80:
-            text += chr(b)
+    # Try UTF-16LE decoding on chunks
+    decoded = data.decode('utf-16le', errors='ignore')
+    # Filter to keep only lines with meaningful Chinese + ASCII content
+    lines = decoded.split('\\n')
+    for line in lines:
+        clean = re.sub(r'[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]', '', line).strip()
+        # Count meaningful characters
+        cn = len(re.findall(r'[\\u4e00-\\u9fff]', clean))
+        en = len(re.findall(r'[a-zA-Z0-9]', clean))
+        if cn + en > 10 and cn > 0:
+            texts.append(clean)
+except:
+    pass
+
+if texts:
+    print('\\n'.join(texts[:500]))
+    sys.exit(0)
+
+# Method 2: Binary scan for Chinese text sequences
+text = ''
+i = 0
+while i < len(data) - 1:
+    # Look for UTF-16LE Chinese characters (two bytes: low byte + high byte 0x4E-0x9F)
+    b0 = data[i]
+    b1 = data[i+1]
+    if 0x20 <= b0 <= 0x7e and b1 == 0x00:
+        text += chr(b0)
+        i += 2
+    elif b0 >= 0x80 and 0x4E <= b1 <= 0x9F:
+        # Potential Chinese character in UTF-16LE
+        try:
+            ch = (b1 << 8) | b0
+            text += chr(ch)
+            i += 2
+        except:
+            text += chr(b0) if 0x20 <= b0 <= 0x7e else ' '
+            i += 1
+    elif b0 in (0x0a, 0x0d):
+        text += chr(b0)
         i += 1
-    # Filter to Chinese + ASCII lines
-    lines = [l.strip() for l in text.split('\\n') if len(l.strip()) > 5]
+    else:
+        i += 1
+
+# Filter to meaningful lines
+lines = [l.strip() for l in text.split('\\n') if len(l.strip()) > 5]
+if lines:
     print('\\n'.join(lines[:500]))
-except Exception as e:
-    sys.stderr.write(str(e))
-" 2>/dev/null`, {
+else:
+    sys.exit(1)
+PYEOF`, {
       timeout: 30000,
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024,
     });
     const text = result.toString().trim();
     if (text.length > 100) {
-      console.log(`Extracted ${text.length} chars from .doc using python3 fallback`);
+      console.log(`Extracted ${text.length} chars from .doc using python3`);
       return text;
     }
   } catch {
