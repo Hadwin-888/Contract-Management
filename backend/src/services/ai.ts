@@ -135,8 +135,10 @@ export async function analyzeContract(
   let prompt = '你是一个专业的合同审核AI助手。';
 
   if (templateContent) {
-    prompt += `请严格按照以下审核规则对合同进行分析：\n\n${templateContent}\n\n---\n\n`;
+    console.log(`Using audit template (${templateContent.length} chars) for contract type: ${contract.type}`);
+    prompt += `请严格按照以下审核规则对合同进行分析，逐条对照规则进行审核，并基于这些规则出具审核报告：\n\n${templateContent}\n\n---\n\n`;
   } else {
+    console.log(`No audit template found for contract type: ${contract.type}, using generic prompt`);
     prompt += '请分析以下合同信息，给出风险评估和修改建议。\n\n';
   }
 

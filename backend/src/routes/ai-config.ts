@@ -80,9 +80,22 @@ router.put('/', requireRole('super_admin'), (req: AuthRequest, res: Response) =>
   const entries: { key: string; value: string }[] = [];
 
   if (model !== undefined) entries.push({ key: 'model', value: model });
-  if (deepseekApiKey !== undefined) entries.push({ key: 'deepseekApiKey', value: deepseekApiKey });
-  if (minimaxApiKey !== undefined) entries.push({ key: 'minimaxApiKey', value: minimaxApiKey });
-  if (qwenApiKey !== undefined) entries.push({ key: 'qwenApiKey', value: qwenApiKey });
+
+  // Helper: detect if a value looks like a masked API key (e.g. "sk****xxxx")
+  function isMaskedKey(val: string): boolean {
+    return val.length > 10 && val.includes('****');
+  }
+
+  // Only save API keys that are NOT masked (skip masked values to avoid overwriting real keys)
+  if (deepseekApiKey !== undefined && !isMaskedKey(deepseekApiKey)) {
+    entries.push({ key: 'deepseekApiKey', value: deepseekApiKey });
+  }
+  if (minimaxApiKey !== undefined && !isMaskedKey(minimaxApiKey)) {
+    entries.push({ key: 'minimaxApiKey', value: minimaxApiKey });
+  }
+  if (qwenApiKey !== undefined && !isMaskedKey(qwenApiKey)) {
+    entries.push({ key: 'qwenApiKey', value: qwenApiKey });
+  }
 
   if (entries.length > 0) {
     upsertMany(entries);

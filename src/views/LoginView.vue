@@ -43,6 +43,15 @@ onMounted(() => {
     customBgImage.value = saved
     bgType.value = 'image'
   }
+
+  // Clear any stale auth state and form defaults
+  // This prevents browser autofill from using previous user's credentials
+  username.value = ''
+  password.value = ''
+  setTimeout(() => {
+    username.value = ''
+    password.value = ''
+  }, 100)
 })
 
 function handleBgChange() {
@@ -169,6 +178,8 @@ function onPasswordBlur() {
               :prefix-icon="null"
               size="large"
               class="login-input"
+              autocomplete="off"
+              name="username"
               @focus="onUsernameFocus"
               @blur="onUsernameBlur"
             />
@@ -185,6 +196,8 @@ function onPasswordBlur() {
               :prefix-icon="null"
               size="large"
               class="login-input"
+              autocomplete="new-password"
+              name="password"
               @focus="onPasswordFocus"
               @blur="onPasswordBlur"
             >
