@@ -35,13 +35,27 @@ except:
     pass
 
 if texts:
-    # Join all lines and clean up leading garbage (Word binary header)
-    result = '\\n'.join(texts)
-    # Find the first meaningful Chinese line to strip binary header
-    match = re.search(r'[\\u4e00-\\u9fff]{2,}', result)
-    if match:
-        result = result[match.start():]
-    print(result)
+    # Find the first line that looks like real contract content
+    start_idx = 0
+    for i, t in enumerate(texts):
+        cn = len(re.findall(r'[\\u4e00-\\u9fff]', t))
+        if cn >= 5 and cn / max(len(t), 1) > 0.4:
+            start_idx = i
+            break
+    # Find the last line that looks like real contract content
+    end_idx = len(texts)
+    for i in range(len(texts) - 1, -1, -1):
+        t = texts[i]
+        cn = len(re.findall(r'[\\u4e00-\\u9fff]', t))
+        if cn >= 3:
+            end_idx = i + 1
+            break
+    # Take only the real contract content range
+    clean_texts = texts[start_idx:end_idx]
+    if clean_texts:
+        print('\\n'.join(clean_texts))
+        sys.exit(0)
+    print('\\n'.join(texts))
     sys.exit(0)
 
 # Method 2: Binary scan for Chinese text sequences
@@ -69,10 +83,10 @@ while i < len(data) - 1:
     else:
         i += 1
 
-# Filter to meaningful lines
-lines = [l.strip() for l in text.split('\\n') if len(l.strip()) > 5]
+# Filter to meaningful lines with Chinese content
+lines = [l.strip() for l in text.split('\\n') if len(l.strip()) > 5 and len(re.findall(r'[\\u4e00-\\u9fff]', l)) > 3]
 if lines:
-    print('\\n'.join(lines[:500]))
+    print('\\n'.join(lines))
 else:
     sys.exit(1)
 PYEOF`, {
