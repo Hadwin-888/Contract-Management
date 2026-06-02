@@ -185,9 +185,11 @@ export async function analyzeContract(
 请只返回JSON，不要包含其他内容。analysis字段请使用完整的Markdown格式。`;
 
   // Build request options - some models (MiniMax) don't support response_format
+  // Use temperature=0 for deterministic output (same contract → same audit result)
   const requestOptions: any = {
     model: modelConfig.modelName,
     max_tokens: 4096,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   };
 
@@ -312,6 +314,7 @@ export async function generateSummary(
     return await client.chat.completions.create({
       model: modelConfig.modelName,
       max_tokens: 800,
+      temperature: 0,
       messages: [{ role: 'user', content: prompt }],
     });
   });
@@ -340,6 +343,14 @@ export async function extractContractInfo(
     maxRetries: 0,
   });
 
+  // Build request options with temperature=0 for deterministic output
+  const extractOptions: any = {
+    model: modelConfig.modelName,
+    max_tokens: 2048,
+    temperature: 0,
+    messages: [{ role: 'user', content: prompt }],
+  };
+
   const prompt = `你是一个合同信息提取助手。请从以下合同文件内容中提取关键信息。
 
 合同文件内容：
@@ -367,10 +378,11 @@ ${fileContent.slice(0, 8000)}
 - 金额相关字段请提取数字，去掉"元"、"万元"等单位（如果是万元请转换为元）
 - 只返回JSON，不要包含其他内容`;
 
-  // Build request options
+  // Build request options with temperature=0 for deterministic output
   const extractOptions: any = {
     model: modelConfig.modelName,
     max_tokens: 2048,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   };
 
