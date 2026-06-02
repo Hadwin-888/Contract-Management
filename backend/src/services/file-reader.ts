@@ -35,27 +35,31 @@ except:
     pass
 
 if texts:
-    # Find the first line that looks like real contract content
-    start_idx = 0
-    for i, t in enumerate(texts):
-        cn = len(re.findall(r'[\\u4e00-\\u9fff]', t))
-        if cn >= 5 and cn / max(len(t), 1) > 0.4:
-            start_idx = i
+    result = '\\n'.join(texts)
+    # Find the position of the first meaningful Chinese sentence
+    # Common .doc contract headers in Chinese
+    markers = ['推广补充协议', '采购合同', '销售合同', '服务合同', '租赁合同',
+               '劳动合同', '技术合同', '咨询合同', '物流合同', '保密协议',
+               '甲方', '乙方', '合同编号', '协议编号']
+    start_pos = -1
+    for m in markers:
+        pos = result.find(m)
+        if pos >= 0:
+            start_pos = pos
             break
-    # Find the last line that looks like real contract content
-    end_idx = len(texts)
-    for i in range(len(texts) - 1, -1, -1):
-        t = texts[i]
-        cn = len(re.findall(r'[\\u4e00-\\u9fff]', t))
-        if cn >= 3:
-            end_idx = i + 1
-            break
-    # Take only the real contract content range
-    clean_texts = texts[start_idx:end_idx]
-    if clean_texts:
-        print('\\n'.join(clean_texts))
-        sys.exit(0)
-    print('\\n'.join(texts))
+    if start_pos > 0:
+        result = result[start_pos:]
+    # Find end of content - look for the last meaningful Chinese text before binary tail
+    # Find the last occurrence of common contract ending patterns
+    end_markers = ['盖章', '签字', '日期', 'PAGE', '以下无正文']
+    end_pos = -1
+    for m in end_markers:
+        pos = result.rfind(m)
+        if pos > end_pos:
+            end_pos = pos
+    if end_pos > 0:
+        result = result[:end_pos + len(max(end_markers, key=len))]
+    print(result)
     sys.exit(0)
 
 # Method 2: Binary scan for Chinese text sequences
