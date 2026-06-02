@@ -165,13 +165,24 @@ export async function analyzeContract(
 
 请只返回JSON，不要包含其他内容。`;
 
+  // Build request options - some models (MiniMax) don't support response_format
+  const requestOptions: any = {
+    model: modelConfig.modelName,
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  };
+
+  // Only DeepSeek and Qwen support response_format: json_object
+  if (modelConfig.modelName !== 'MiniMax-M3') {
+    requestOptions.response_format = { type: 'json_object' };
+  } else {
+    // For MiniMax, instruct it more explicitly to return JSON
+    prompt += '\n\n请务必只返回纯JSON，不要包含任何markdown标记、代码块或额外说明。';
+    requestOptions.messages = [{ role: 'user', content: prompt }];
+  }
+
   const response = await retryAiCall(async () => {
-    return await client.chat.completions.create({
-      model: modelConfig.modelName,
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    });
+    return await client.chat.completions.create(requestOptions);
   });
 
   const content = response.choices[0]?.message?.content;
@@ -179,8 +190,15 @@ export async function analyzeContract(
     throw new Error('AI 返回内容为空');
   }
 
+  // Try to extract JSON from the response (handle markdown code blocks)
+  let jsonStr = content.trim();
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1].trim();
+  }
+
   try {
-    const result = JSON.parse(content);
+    const result = JSON.parse(jsonStr);
     return {
       riskScore: result.riskScore ?? 60,
       issuesCount: result.issuesCount ?? 0,
@@ -189,6 +207,7 @@ export async function analyzeContract(
       suggestions: result.suggestions ?? ['请手动检查合同条款'],
     };
   } catch (parseError) {
+    console.error('JSON parse failed, raw content:', jsonStr.slice(0, 300));
     throw new Error('AI 返回的 JSON 格式无效');
   }
 }
@@ -296,13 +315,23 @@ ${fileContent.slice(0, 8000)}
 - 金额相关字段请提取数字，去掉"元"、"万元"等单位（如果是万元请转换为元）
 - 只返回JSON，不要包含其他内容`;
 
+  // Build request options
+  const extractOptions: any = {
+    model: modelConfig.modelName,
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  };
+
+  // Only DeepSeek and Qwen support response_format: json_object
+  if (modelConfig.modelName !== 'MiniMax-M3') {
+    extractOptions.response_format = { type: 'json_object' };
+  } else {
+    prompt += '\n\n请务必只返回纯JSON，不要包含任何markdown标记、代码块或额外说明。';
+    extractOptions.messages = [{ role: 'user', content: prompt }];
+  }
+
   const response = await retryAiCall(async () => {
-    return await client.chat.completions.create({
-      model: modelConfig.modelName,
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    });
+    return await client.chat.completions.create(extractOptions);
   });
 
   const content = response.choices[0]?.message?.content;
@@ -310,8 +339,15 @@ ${fileContent.slice(0, 8000)}
     throw new Error('AI 返回内容为空');
   }
 
+  // Try to extract JSON from the response (handle markdown code blocks)
+  let jsonStr = content.trim();
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1].trim();
+  }
+
   try {
-    const result = JSON.parse(content);
+    const result = JSON.parse(jsonStr);
     return {
       name: result.name || '未命名合同',
       partyA: result.partyA || '未识别',
