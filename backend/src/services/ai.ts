@@ -343,14 +343,6 @@ export async function extractContractInfo(
     maxRetries: 0,
   });
 
-  // Build request options with temperature=0 for deterministic output
-  const extractOptions: any = {
-    model: modelConfig.modelName,
-    max_tokens: 2048,
-    temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
-  };
-
   const prompt = `你是一个合同信息提取助手。请从以下合同文件内容中提取关键信息。
 
 合同文件内容：
