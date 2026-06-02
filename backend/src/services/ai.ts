@@ -190,11 +190,22 @@ export async function analyzeContract(
     throw new Error('AI 返回内容为空');
   }
 
-  // Try to extract JSON from the response (handle markdown code blocks)
+  // Try to extract JSON from the response
   let jsonStr = content.trim();
+
+  // Remove think tags (MiniMax-M3 adds <think> reasoning blocks)
+  jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+  // Try to extract JSON from markdown code blocks
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
     jsonStr = jsonMatch[1].trim();
+  }
+
+  // Try to find a JSON object directly (starts with { and ends with })
+  const objectMatch = jsonStr.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    jsonStr = objectMatch[0];
   }
 
   try {
@@ -339,11 +350,22 @@ ${fileContent.slice(0, 8000)}
     throw new Error('AI 返回内容为空');
   }
 
-  // Try to extract JSON from the response (handle markdown code blocks)
+  // Try to extract JSON from the response
   let jsonStr = content.trim();
+
+  // Remove think tags (MiniMax-M3 adds <think> reasoning blocks)
+  jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+  // Try to extract JSON from markdown code blocks
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
     jsonStr = jsonMatch[1].trim();
+  }
+
+  // Try to find a JSON object directly
+  const objectMatch = jsonStr.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    jsonStr = objectMatch[0];
   }
 
   try {
