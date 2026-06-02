@@ -53,12 +53,14 @@ if texts:
     # Find the last occurrence of common contract ending patterns
     end_markers = ['盖章', '签字', '日期', 'PAGE', '以下无正文']
     end_pos = -1
+    end_marker_used = ''
     for m in end_markers:
         pos = result.rfind(m)
         if pos > end_pos:
             end_pos = pos
-    if end_pos > 0:
-        result = result[:end_pos + len(max(end_markers, key=len))]
+            end_marker_used = m
+    if end_pos > 0 and end_marker_used:
+        result = result[:end_pos + len(end_marker_used)]
     print(result)
     sys.exit(0)
 
