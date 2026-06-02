@@ -6,7 +6,8 @@ import { login as apiLogin } from '@/api/auth'
 import { fetchMyProfile } from '@/api/users'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('token'))
+  // Use sessionStorage instead of localStorage so token is cleared when browser closes
+  const token = ref<string | null>(sessionStorage.getItem('token'))
   const user = ref<User | null>(loadUserFromStorage())
   const initialized = ref(false)
 
@@ -25,7 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function loadUserFromStorage(): User | null {
     try {
-      const stored = localStorage.getItem('user')
+      const stored = sessionStorage.getItem('user')
       if (!stored) return null
       return JSON.parse(stored) as User
     } catch {
@@ -49,21 +50,21 @@ export const useAuthStore = defineStore('auth', () => {
   function setAuth(newToken: string, newUser: User) {
     token.value = newToken
     user.value = newUser
-    localStorage.setItem('token', newToken)
-    localStorage.setItem('user', JSON.stringify(newUser))
+    sessionStorage.setItem('token', newToken)
+    sessionStorage.setItem('user', JSON.stringify(newUser))
   }
 
   function setUser(newUser: User) {
     user.value = newUser
-    localStorage.setItem('user', JSON.stringify(newUser))
+    sessionStorage.setItem('user', JSON.stringify(newUser))
   }
 
   function logout() {
     token.value = null
     user.value = null
     initialized.value = false
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('user')
   }
 
   async function login(username: string, password: string) {

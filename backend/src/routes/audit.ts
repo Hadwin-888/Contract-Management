@@ -108,7 +108,7 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       const fullPath = path.join(uploadDir, filePath);
       if (fs.existsSync(fullPath)) {
         try {
-          fileContent = await readFileContent(fullPath, 5000);
+          fileContent = await readFileContent(fullPath, 8000);
         } catch {
           // ignore
         }
@@ -144,6 +144,7 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
         endDate: contract.end_date as string,
       },
       template?.content,
+      fileContent || undefined,
     );
 
     let summary = '';

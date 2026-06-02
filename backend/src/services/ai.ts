@@ -121,13 +121,14 @@ async function retryAiCall<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> 
 export async function analyzeContract(
   contract: ContractInfo,
   templateContent?: string,
+  fileContent?: string,
 ): Promise<AnalysisResult> {
   const modelConfig = getModelConfig();
 
   const client = new OpenAI({
     apiKey: modelConfig.apiKey,
     baseURL: modelConfig.baseURL,
-    timeout: 60000,
+    timeout: 120000,
     maxRetries: 0, // we handle retry ourselves
   });
 
@@ -149,11 +150,17 @@ export async function analyzeContract(
 合同金额：¥${(contract.amount / 10000).toFixed(2)}万
 合同期限：${contract.startDate} 至 ${contract.endDate}
 
-请以JSON格式返回分析结果，包含以下字段：
+`;
+
+  if (fileContent) {
+    prompt += `以下是合同文件的具体内容，请基于此内容结合审核规则进行详细审核：\n\n${fileContent.slice(0, 4000)}\n\n---\n\n`;
+  }
+
+  prompt += `请以JSON格式返回分析结果，包含以下字段：
 1. riskScore: 风险评分（0-100，越高越安全）
 2. issuesCount: 发现的问题数量
 3. status: "pass"（通过，≥70分）、"warning"（警告，50-69分）或"fail"（未通过，<50分）
-4. analysis: 详细分析报告（中文，200-300字）
+4. analysis: 详细分析报告（中文，200-300字），请引用合同具体条款进行分析
 5. suggestions: 改进建议数组（3-5条具体建议）
 
 请只返回JSON，不要包含其他内容。`;
