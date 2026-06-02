@@ -1,17 +1,84 @@
 import fs from 'fs';
 import path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import os from 'os';
 import mammoth from 'mammoth';
 
 /**
- * Extract text content from a file. Supports TXT, PDF (with OCR fallback), and DOCX.
+ * Extract text content from a .doc file using catdoc or antiword.
+ */
+function extractDocText(filePath: string): string {
+  // Try catdoc first (most reliable on Linux), then antiword
+  const tools = ['catdoc', 'antiword'];
+  for (const tool of tools) {
+    try {
+      const result = execSync(`${tool} "${filePath}"`, {
+        timeout: 30000,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      const text = result.toString().trim();
+      if (text.length > 50) {
+        console.log(`Extracted ${text.length} chars from .doc using ${tool}`);
+        return text;
+      }
+    } catch {
+      // try next tool
+    }
+  }
+  // Fallback: try python3 with olefile
+  try {
+    const result = execSync(`python3 -c "
+import sys, struct
+try:
+    with open('${filePath.replace(/'/g, "'\\''")}', 'rb') as f:
+        data = f.read()
+    # Try to extract readable text from binary .doc
+    text = ''
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if 0x20 <= b <= 0x7e or b in (0x0a, 0x0d, 0x09) or b >= 0x80:
+            text += chr(b)
+        i += 1
+    # Filter to Chinese + ASCII lines
+    lines = [l.strip() for l in text.split('\\n') if len(l.strip()) > 5]
+    print('\\n'.join(lines[:500]))
+except Exception as e:
+    sys.stderr.write(str(e))
+" 2>/dev/null`, {
+      timeout: 30000,
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const text = result.toString().trim();
+    if (text.length > 100) {
+      console.log(`Extracted ${text.length} chars from .doc using python3 fallback`);
+      return text;
+    }
+  } catch {
+    // give up
+  }
+  return '';
+}
+
+/**
+ * Extract text content from a file. Supports TXT, DOC, DOCX, PDF (with OCR fallback).
  */
 export async function readFileContent(filePath: string, maxLength = 5000): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
 
   if (ext === '.txt') {
     return fs.readFileSync(filePath, 'utf-8').slice(0, maxLength);
+  }
+
+  if (ext === '.doc') {
+    const text = extractDocText(filePath);
+    if (text) {
+      return text.replace(/\s+/g, ' ').trim().slice(0, maxLength);
+    }
+    console.error('Failed to extract .doc content, no tools available');
+    return '';
   }
 
   if (ext === '.docx') {

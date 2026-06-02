@@ -27,8 +27,8 @@ WORKDIR /app
 # Use Aliyun mirror for apk
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-# Install runtime dependencies for better-sqlite3 and OCR
-RUN apk add --no-cache python3 make g++ poppler-utils tesseract-ocr tesseract-ocr-data-chi_sim
+# Install runtime dependencies for better-sqlite3, OCR, and .doc file reading
+RUN apk add --no-cache python3 make g++ poppler-utils tesseract-ocr tesseract-ocr-data-chi_sim catdoc
 
 # Copy built output
 COPY --from=build /app/dist ./dist
