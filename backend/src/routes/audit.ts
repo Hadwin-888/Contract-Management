@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db.js';
-import { AuthRequest, authenticateToken } from '../middleware/auth.js';
+import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
 import { buildDeptFilter, requireContractAccess, canAccessContract } from '../middleware/permissions.js';
 import { analyzeContract, generateSummary, extractContractInfo } from '../services/ai.js';
 import { readFileContent } from '../services/file-reader.js';
@@ -80,6 +80,37 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
   }
 
   res.json(result);
+});
+
+// DELETE /api/audit/clear — clear all audit records (admin+ only)
+router.delete('/clear', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM audit_records').run();
+  console.log(`Cleared ${result.changes} audit records by user ${req.userId}`);
+  res.json({ message: `已清除 ${result.changes} 条审核记录` });
+});
+
+// DELETE /api/audit/:id — delete a single audit record
+router.delete('/:id', (req: AuthRequest, res: Response) => {
+  const db = getDb();
+  const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  if (!record) {
+    res.status(404).json({ error: '审核记录不存在' });
+    return;
+  }
+
+  // Check access
+  const contractId = record.contract_id as string;
+  if (contractId) {
+    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
+    if (contract && !canAccessContract(req, contract)) {
+      res.status(403).json({ error: '无权删除该审核记录' });
+      return;
+    }
+  }
+
+  db.prepare('DELETE FROM audit_records WHERE id = ?').run(req.params.id);
+  res.json({ message: '审核记录已删除' });
 });
 
 // POST /api/audit/analyze — trigger AI analysis

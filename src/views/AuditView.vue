@@ -8,7 +8,7 @@ import {
 } from 'element-plus'
 import { Sparkles, Upload, FileText, X, Download, FileSpreadsheet } from 'lucide-vue-next'
 import PageTransition from '@/components/common/PageTransition.vue'
-import { fetchAuditRecords, analyzeContract as apiAnalyzeContract } from '@/api/audit'
+import { fetchAuditRecords, analyzeContract as apiAnalyzeContract, clearAuditRecords, deleteAuditRecord } from '@/api/audit'
 import { createContract } from '@/api/contracts'
 import { uploadFile } from '@/api/upload'
 import { fetchTemplates } from '@/api/templates'
@@ -133,7 +133,9 @@ async function handleUploadAndAnalyze() {
     selectedRecord.value = result as unknown as AuditRecord
     drawerVisible.value = true
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.error || '操作失败')
+    const errMsg = error?.response?.data?.error || error?.message || '操作失败'
+    console.error('Audit error:', error)
+    ElMessage.error(errMsg)
   } finally {
     analyzing.value = false
     uploading.value = false
@@ -160,6 +162,17 @@ async function triggerAnalysis() {
     ElMessage.error(error?.response?.data?.error || 'AI分析失败')
   } finally {
     analyzing.value = false
+  }
+}
+
+async function handleClearRecords() {
+  try {
+    await clearAuditRecords()
+    ElMessage.success('所有审核记录已清除')
+    records.value = []
+    total.value = 0
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '清除失败')
   }
 }
 
@@ -253,6 +266,74 @@ function downloadTxtReport(record: AuditRecord) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+function downloadPdfReport(record: AuditRecord) {
+  const suggestions = typeof record.suggestions === 'string'
+    ? JSON.parse(record.suggestions)
+    : record.suggestions
+
+  // Build HTML content for the PDF
+  const statusLabel = getStatusTag(record.status).label
+  const analysisHtml = (record.analysis || '暂无分析报告')
+    .replace(/\n/g, '<br>')
+    .replace(/### /g, '<h3>')
+    .replace(/## /g, '<h2>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+
+  const suggestionsHtml = Array.isArray(suggestions) && suggestions.length > 0
+    ? suggestions.map((s: string, i: number) => `<li>${s}</li>`).join('')
+    : '<li>暂无改进建议</li>'
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; padding: 40px; color: #333; }
+  h1 { text-align: center; color: #1a1a1a; border-bottom: 2px solid #007aff; padding-bottom: 10px; }
+  .info { background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0; }
+  .info p { margin: 5px 0; }
+  .score { font-size: 24px; font-weight: bold; color: ${record.risk_score >= 70 ? '#34c759' : record.risk_score >= 50 ? '#ff9500' : '#ff3b30'}; }
+  h2 { color: #1a1a1a; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+  h3 { color: #555; margin-top: 20px; }
+  .report { line-height: 1.8; }
+  ul { padding-left: 20px; }
+  li { margin: 5px 0; }
+  .footer { text-align: center; color: #999; margin-top: 40px; font-size: 12px; border-top: 1px solid #eee; padding-top: 15px; }
+</style>
+</head>
+<body>
+<h1>AI 合同审核报告</h1>
+<div class="info">
+  <p><strong>合同名称：</strong>${record.contract_name || '-'}</p>
+  <p><strong>审核日期：</strong>${record.created_at || '-'}</p>
+  <p><strong>风险评分：</strong><span class="score">${record.risk_score}分</span></p>
+  <p><strong>发现问题：</strong>${record.issues_count}个</p>
+  <p><strong>审核状态：</strong>${statusLabel}</p>
+</div>
+<h2>AI 分析报告</h2>
+<div class="report">${analysisHtml}</div>
+<h2>改进建议</h2>
+<ul>${suggestionsHtml}</ul>
+<div class="footer">
+  <p>报告生成时间：${new Date().toLocaleString('zh-CN')}</p>
+  <p>由 AI 合同管理平台自动生成</p>
+</div>
+</body>
+</html>`
+
+  // Open in new window for printing/PDF
+  const win = window.open('', '_blank')
+  if (win) {
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    win.print()
+  } else {
+    ElMessage.warning('请允许弹出窗口以生成PDF')
+  }
 }
 
 function downloadSummary(record: any) {
@@ -352,6 +433,18 @@ function removeFile() {
             <Upload :size="18" />
             <span>上传并审核</span>
           </el-button>
+          <el-popconfirm
+            title="确定要清除所有审核记录吗？此操作不可撤销。"
+            confirm-button-text="确认清除"
+            cancel-button-text="取消"
+            @confirm="handleClearRecords"
+          >
+            <template #reference>
+              <el-button size="large" class="action-btn" type="danger" plain>
+                <span>清除记录</span>
+              </el-button>
+            </template>
+          </el-popconfirm>
         </div>
       </div>
 
@@ -428,6 +521,9 @@ function removeFile() {
               </el-button>
               <el-button text size="small" type="success" @click="downloadTxtReport(row as unknown as AuditRecord)">
                 .txt
+              </el-button>
+              <el-button text size="small" type="warning" @click="downloadPdfReport(row as unknown as AuditRecord)">
+                PDF
               </el-button>
               <el-button v-if="(row as any).summary" text size="small" type="warning" @click="downloadSummary(row as any)">
                 文件概况

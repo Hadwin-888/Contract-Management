@@ -36,3 +36,11 @@ export async function analyzeContract(contractId: string): Promise<AuditRecord> 
   })
   return response.data
 }
+
+export async function clearAuditRecords(): Promise<void> {
+  await apiClient.delete('/audit/clear')
+}
+
+export async function deleteAuditRecord(id: string): Promise<void> {
+  await apiClient.delete(`/audit/${id}`)
+}
