@@ -77,7 +77,7 @@ router.post('/', requireRole('super_admin'), async (req: AuthRequest, res: Respo
 
 // PUT /api/settings/roles/:id — update a role
 router.put('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { name, description } = req.body;
 
   try {
@@ -109,7 +109,7 @@ router.put('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Res
 
 // DELETE /api/settings/roles/:id — delete a role
 router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
 
   try {
     const role = await prisma.customRole.findUnique({ where: { id } });
@@ -133,7 +133,7 @@ router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res: 
 
 // GET /api/settings/roles/:id/permissions — get permissions for a role
 router.get('/:id/permissions', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
 
   try {
     const role = await prisma.customRole.findUnique({
@@ -159,7 +159,7 @@ router.get('/:id/permissions', requireRole('super_admin'), async (req: AuthReque
 
 // PUT /api/settings/roles/:id/permissions — set permissions for a role
 router.put('/:id/permissions', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { permissionIds } = req.body as { permissionIds: string[] };
 
   try {

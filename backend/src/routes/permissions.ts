@@ -75,7 +75,7 @@ router.post('/seed', requireRole('super_admin'), async (req: AuthRequest, res: R
 
 // GET /api/settings/users/:id/roles — get roles for a user
 router.get('/users/:id/roles', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
 
   try {
     const userRoles = await prisma.userRole.findMany({
@@ -91,7 +91,7 @@ router.get('/users/:id/roles', requireRole('super_admin'), async (req: AuthReque
 
 // PUT /api/settings/users/:id/roles — set roles for a user
 router.put('/users/:id/roles', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { roleIds } = req.body as { roleIds: string[] };
 
   try {

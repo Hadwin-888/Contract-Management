@@ -81,7 +81,7 @@ router.post('/', requireRole('super_admin'), async (req: AuthRequest, res: Respo
 
 // PUT /api/approvals/flows/:id — update an approval flow
 router.put('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { name, module, description, isActive, steps } = req.body;
 
   try {
