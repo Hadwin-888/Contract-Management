@@ -156,8 +156,22 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const token = sessionStorage.getItem('token')
+
+  // If token exists, ensure auth is initialized
+  if (token) {
+    const authStore = useAuthStore()
+    if (!authStore.initialized) {
+      try {
+        await authStore.init()
+      } catch {
+        // init failed, token is invalid
+        next('/login')
+        return
+      }
+    }
+  }
 
   // Auth check
   if (to.meta.requiresAuth && !token) {
