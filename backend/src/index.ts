@@ -20,6 +20,9 @@ import approvalFlowRoutes from './routes/approval-flows.js';
 import notificationRoutes from './routes/notifications.js';
 import projectRoutes from './routes/projects.js';
 import taskRoutes from './routes/tasks.js';
+import procurementRequestRoutes from './routes/procurement-requests.js';
+import supplierRoutes from './routes/suppliers.js';
+import purchaseOrderRoutes from './routes/purchase-orders.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,6 +59,9 @@ app.use('/api/approvals/flows', approvalFlowRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/procurement/requests', procurementRequestRoutes);
+app.use('/api/procurement/suppliers', supplierRoutes);
+app.use('/api/procurement/purchase-orders', purchaseOrderRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
