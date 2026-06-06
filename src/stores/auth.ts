@@ -41,7 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const profile = await fetchMyProfile()
       user.value = profile
-      localStorage.setItem('user', JSON.stringify(profile))
+      sessionStorage.setItem('user', JSON.stringify(profile))
     } catch {
       logout()
     }

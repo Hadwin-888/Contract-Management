@@ -453,7 +453,7 @@ function removeFile() {
         <div class="upload-placeholder">
           <Upload :size="32" color="#007aff" />
           <span class="upload-text">点击上传合同文件，AI 自动审核</span>
-          <span class="upload-hint">支持 PDF、DOCX、TXT 格式</span>
+          <span class="upload-hint">支持 PDF、DOC、DOCX、Excel、CSV、TXT、图片</span>
         </div>
       </div>
 
@@ -544,7 +544,7 @@ function removeFile() {
           <div v-if="!uploadFileRef" class="drop-zone" @click="triggerFileInput">
             <Upload :size="36" color="#007aff" />
             <span class="drop-text">拖拽文件到此处，或点击选择文件</span>
-            <span class="drop-hint">支持 PDF、DOCX、TXT（最大 20MB）</span>
+            <span class="drop-hint">支持 PDF、DOC、DOCX、XLS、XLSX、CSV、TXT、图片（最大 50MB）</span>
           </div>
           <div v-else class="file-preview">
             <FileText :size="24" color="#007aff" />
@@ -559,7 +559,7 @@ function removeFile() {
           <input
             id="audit-file-input"
             type="file"
-            accept=".pdf,.docx,.doc,.txt"
+            accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff"
             style="display:none"
             @change="onFileChange(($event.target as HTMLInputElement).files?.[0] as File)"
           />

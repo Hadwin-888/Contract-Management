@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
 import { buildDeptFilter, requireContractAccess, canAccessContract } from '../middleware/permissions.js';
-import { analyzeContract, generateSummary, extractContractInfo } from '../services/ai.js';
+import { analyzeContract, generateSummary, extractContractInfo, runBasicContractChecks, calculateRiskScore } from '../services/ai.js';
 import { readFileContent } from '../services/file-reader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,6 +15,26 @@ const uploadDir = path.join(__dirname, '..', '..', 'uploads');
 const router = Router();
 
 router.use(authenticateToken);
+
+function parseJsonField(value: unknown, fallback: unknown) {
+  if (typeof value !== 'string') return value ?? fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function hydrateAuditRecord<T extends Record<string, unknown>>(record: T): T {
+  return {
+    ...record,
+    suggestions: parseJsonField(record.suggestions, []),
+    extracted_fields: parseJsonField(record.extracted_fields, {}),
+    rule_issues: parseJsonField(record.rule_issues, []),
+    ai_issues: parseJsonField(record.ai_issues, []),
+    reviewed_issues: parseJsonField(record.reviewed_issues, []),
+  };
+}
 
 // GET /api/audit — list audit records (with dept filtering)
 router.get('/', (req: AuthRequest, res: Response) => {
@@ -32,14 +52,14 @@ router.get('/', (req: AuthRequest, res: Response) => {
   const total = countResult.count;
 
   const offset = (page - 1) * pageSize;
-  const items = db.prepare(`
+  const items = (db.prepare(`
     SELECT a.*, c.name as contract_name
     FROM audit_records a
     JOIN contracts c ON a.contract_id = c.id
     WHERE 1=1${deptFilter.clause}
     ORDER BY a.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(...deptFilter.params, pageSize, offset);
+  `).all(...deptFilter.params, pageSize, offset) as Record<string, unknown>[]).map(hydrateAuditRecord);
 
   res.json({ items, total, page, pageSize });
 });
@@ -70,16 +90,7 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
     }
   }
 
-  const result = record;
-  if (typeof result.suggestions === 'string') {
-    try {
-      result.suggestions = JSON.parse(result.suggestions as string);
-    } catch {
-      // keep as string
-    }
-  }
-
-  res.json(result);
+  res.json(hydrateAuditRecord(record));
 });
 
 // DELETE /api/audit/clear — clear all audit records (admin+ only)
@@ -134,12 +145,23 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
     let templateVersion: number | null = null;
 
     let fileContent = '';
+    let extractedFields: Record<string, unknown> = {
+      name: contract.name,
+      partyA: contract.party_a,
+      partyB: contract.party_b,
+      amount: contract.amount,
+      startDate: contract.start_date,
+      endDate: contract.end_date,
+      contractNo: contract.contract_no,
+      qualityDeposit: contract.quality_deposit,
+      insuranceInfo: contract.insurance_info,
+    };
     const filePath = contract.file_path as string | null;
     if (filePath) {
       const fullPath = path.join(uploadDir, filePath);
       if (fs.existsSync(fullPath)) {
         try {
-          fileContent = await readFileContent(fullPath, 8000);
+          fileContent = await readFileContent(fullPath, 120000);
         } catch {
           // ignore
         }
@@ -149,6 +171,7 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
     if (fileContent) {
       try {
         const extracted = await extractContractInfo(fileContent, contract.type as string);
+        extractedFields = { ...extractedFields, ...extracted };
         db.prepare(`
           UPDATE contracts SET name=?, party_a=?, party_b=?, amount=?, start_date=?, end_date=?
           WHERE id=?
@@ -164,6 +187,8 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    const ruleIssues = runBasicContractChecks(extractedFields as any);
+
     const analysis = await analyzeContract(
       {
         name: contract.name as string,
@@ -176,6 +201,7 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       },
       template?.content,
       fileContent || undefined,
+      ruleIssues,
     );
 
     let summary = '';
@@ -204,15 +230,42 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
     }
 
     const id = uuidv4();
+    const aiIssues = analysis.issues || [];
+    const reviewedIssues = [...ruleIssues, ...aiIssues];
+    const score = calculateRiskScore(reviewedIssues);
     const suggestionsJson = JSON.stringify(analysis.suggestions);
 
     db.prepare(`
-      INSERT INTO audit_records (id, contract_id, risk_score, issues_count, status, analysis, suggestions, summary, template_id, template_version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, contractId, analysis.riskScore, analysis.issuesCount, analysis.status, analysis.analysis, suggestionsJson, summary, templateId, templateVersion);
+      INSERT INTO audit_records (
+        id, contract_id, risk_score, issues_count, status, analysis, suggestions, summary,
+        template_id, template_version, template_content_snapshot, contract_type,
+        extracted_fields, rule_issues, ai_issues, reviewed_issues,
+        need_human_review_count, audit_version
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      contractId,
+      score.riskScore,
+      score.metrics.totalIssues,
+      score.status,
+      analysis.analysis,
+      suggestionsJson,
+      summary,
+      templateId,
+      templateVersion,
+      template?.content || '',
+      contract.type as string || '',
+      JSON.stringify(extractedFields),
+      JSON.stringify(ruleIssues),
+      JSON.stringify(aiIssues),
+      JSON.stringify(reviewedIssues),
+      score.metrics.needHumanReviewCount,
+      'structured-v1',
+    );
 
-    const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(id);
-    res.status(201).json({ ...record as object, suggestions: analysis.suggestions });
+    const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(id) as Record<string, unknown>;
+    res.status(201).json(hydrateAuditRecord(record));
   } catch (error) {
     console.error('AI analysis failed:', error);
     res.status(500).json({

@@ -326,7 +326,7 @@ router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
 
   let fileContent = '';
   try {
-    fileContent = await readFileContent(fullPath, 10000);
+    fileContent = await readFileContent(fullPath, 60000);
   } catch (err) {
     console.error('Read file content failed:', err);
     res.status(500).json({ error: '读取文件失败' });

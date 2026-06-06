@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 
-// Mock localStorage
-const localStorageMock = (() => {
+// Mock sessionStorage
+const sessionStorageMock = (() => {
   let store: Record<string, string> = {}
   return {
     getItem: (key: string) => store[key] || null,
@@ -15,12 +15,12 @@ const localStorageMock = (() => {
   }
 })()
 
-Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock })
+Object.defineProperty(globalThis, 'sessionStorage', { value: sessionStorageMock })
 
 describe('Auth Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    localStorage.clear()
+    sessionStorage.clear()
   })
 
   it('should initialize with no auth state', () => {
@@ -37,7 +37,7 @@ describe('Auth Store', () => {
     expect(store.isAuthenticated).toBe(true)
     expect(store.token).toBe('test-token')
     expect(store.user?.name).toBe('Test')
-    expect(localStorage.getItem('token')).toBe('test-token')
+    expect(sessionStorage.getItem('token')).toBe('test-token')
   })
 
   it('should clear auth state on logout', () => {
@@ -48,11 +48,11 @@ describe('Auth Store', () => {
     expect(store.isAuthenticated).toBe(false)
     expect(store.token).toBeNull()
     expect(store.user).toBeNull()
-    expect(localStorage.getItem('token')).toBeNull()
+    expect(sessionStorage.getItem('token')).toBeNull()
   })
 
-  it('should restore token from localStorage', () => {
-    localStorage.setItem('token', 'saved-token')
+  it('should restore token from sessionStorage', () => {
+    sessionStorage.setItem('token', 'saved-token')
     const store = useAuthStore()
     expect(store.token).toBe('saved-token')
     expect(store.isAuthenticated).toBe(true)

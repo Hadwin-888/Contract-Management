@@ -4,12 +4,35 @@ export interface AuditRecord {
   id: string
   contract_id: string
   contract_name: string
+  contract_type?: string
   risk_score: number
   issues_count: number
   status: 'pass' | 'warning' | 'fail' | 'pending'
   analysis: string
   suggestions: string[]
+  summary?: string
+  template_id?: string | null
+  template_version?: number | null
+  template_content_snapshot?: string
+  extracted_fields?: Record<string, unknown>
+  rule_issues?: AuditIssue[]
+  ai_issues?: AuditIssue[]
+  reviewed_issues?: AuditIssue[]
+  need_human_review_count?: number
+  audit_version?: string
   created_at: string
+}
+
+export interface AuditIssue {
+  title: string
+  severity: 'high' | 'medium' | 'low'
+  source: 'rule' | 'ai'
+  checkItemId?: string
+  evidence: string
+  reason: string
+  suggestion: string
+  confidence: number
+  needHumanReview: boolean
 }
 
 export interface AuditListResponse {

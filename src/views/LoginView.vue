@@ -81,7 +81,9 @@ function resetBg() {
 }
 
 async function handleLogin() {
-  if (!username.value || !password.value) {
+  const cleanUsername = username.value.trim()
+
+  if (!cleanUsername || !password.value) {
     ElMessage.warning('请输入用户名和密码')
     return
   }
@@ -89,11 +91,13 @@ async function handleLogin() {
   loading.value = true
 
   try {
-    await authStore.login(username.value, password.value)
+    await authStore.login(cleanUsername, password.value)
     ElMessage.success('登录成功！')
     router.push('/dashboard')
   } catch (error: any) {
-    const message = error?.response?.data?.error || '登录失败，请检查用户名和密码'
+    console.error('Login failed:', error)
+    const message = error?.response?.data?.error
+      || (error?.request ? '无法连接后端服务，请确认 API 服务已启动' : '登录失败，请检查用户名和密码')
     ElMessage.error(message)
   } finally {
     loading.value = false

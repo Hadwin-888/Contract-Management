@@ -1,20 +1,161 @@
 import fs from 'fs';
 import path from 'path';
-import { execFileSync, execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import os from 'os';
 import mammoth from 'mammoth';
 
-/**
- * Extract text content from a .doc file using catdoc or antiword.
- */
-function extractDocText(filePath: string): string {
-  // Use python3 with a smarter extraction — handles Chinese .doc files well
+function hasCommand(command: string): boolean {
   try {
-    const escapedPath = filePath.replace(/'/g, "'\\''");
-    const result = execSync(`python3 << 'PYEOF'
+    execFileSync('/bin/sh', ['-lc', `command -v ${command}`], {
+      timeout: 5000,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeExtractedText(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function scoreContractText(text: string): number {
+  const normalized = normalizeExtractedText(text);
+  if (!normalized) return 0;
+
+  let score = Math.min(normalized.length, 20000) / 100;
+  const signals = [
+    '合同编号', '甲方', '乙方', '签约时间', '第一条', '第二条',
+    '代销合同', '商品代销', '采购合同', '服务合同', '劳动合同',
+    '税率', '结算', '付款', '验收', '违约责任', '争议',
+    '深圳美高梅酒店', '美高梅', 'MGM',
+  ];
+  for (const signal of signals) {
+    if (normalized.includes(signal)) score += 50;
+  }
+  if (/^.{0,120}(合同编号|[\s\S]{0,50}合同)/.test(normalized)) score += 120;
+  if (normalized.includes('甲方') && normalized.includes('乙方')) score += 150;
+  return score;
+}
+
+function decodeXmlText(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function unzipText(filePath: string, entry: string): string {
+  if (!hasCommand('unzip')) return '';
+  try {
+    return execFileSync('unzip', ['-p', filePath, entry], {
+      timeout: 30000,
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+    }).toString();
+  } catch {
+    return '';
+  }
+}
+
+function listZipEntries(filePath: string): string[] {
+  if (!hasCommand('unzip')) return [];
+  try {
+    const output = execFileSync('unzip', ['-Z1', filePath], {
+      timeout: 30000,
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    }).toString();
+    return output.split('\n').map((line) => line.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function xmlToPlainText(xml: string): string {
+  if (!xml) return '';
+  const lines: string[] = [];
+  const paragraphMatches = xml.match(/<w:p[\s\S]*?<\/w:p>/g) || [];
+  for (const paragraph of paragraphMatches) {
+    const parts = [...paragraph.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br\/>|<w:cr\/>/g)]
+      .map((match) => {
+        if (match[0].startsWith('<w:tab')) return '\t';
+        if (match[0].startsWith('<w:br') || match[0].startsWith('<w:cr')) return '\n';
+        return decodeXmlText(match[1] || '');
+      });
+    const line = parts.join('').replace(/[ \t]+/g, ' ').trim();
+    if (line) lines.push(line);
+  }
+  return normalizeExtractedText(lines.join('\n'));
+}
+
+function mergeTextCandidates(candidates: { source: string; text: string }[], maxLength: number): string {
+  const usable = candidates
+    .map((candidate) => ({ ...candidate, text: normalizeExtractedText(candidate.text) }))
+    .filter((candidate) => candidate.text.length > 0)
+    .sort((a, b) => scoreContractText(b.text) - scoreContractText(a.text));
+
+  if (usable.length === 0) return '';
+
+  let merged = usable[0].text;
+  for (const candidate of usable.slice(1)) {
+    const chunks = candidate.text.split(/\n{2,}|(?=附件|合同附件|附录|Schedule|Appendix)/).map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 80);
+    for (const chunk of chunks) {
+      const key = chunk.slice(0, 80);
+      if (!merged.includes(key) && merged.length + chunk.length + 20 <= maxLength * 1.2) {
+        merged += `\n\n[${candidate.source}补充]\n${chunk}`;
+      }
+    }
+  }
+
+  return normalizeExtractedText(merged).slice(0, maxLength);
+}
+
+function extractDocTextWithTextutil(filePath: string): string {
+  if (process.platform !== 'darwin' || !hasCommand('textutil')) return '';
+  try {
+    const result = execFileSync('textutil', ['-convert', 'txt', '-stdout', filePath], {
+      timeout: 30000,
+      encoding: 'utf-8',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return normalizeExtractedText(result.toString());
+  } catch (err) {
+    console.error('textutil .doc extraction failed:', (err as Error).message);
+    return '';
+  }
+}
+
+function extractDocTextWithAntiword(filePath: string): string {
+  if (!hasCommand('antiword')) return '';
+  try {
+    const result = execFileSync('antiword', ['-m', 'UTF-8', filePath], {
+      timeout: 30000,
+      encoding: 'utf-8',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return normalizeExtractedText(result.toString());
+  } catch (err) {
+    console.error('antiword .doc extraction failed:', (err as Error).message);
+    return '';
+  }
+}
+
+function extractDocTextWithPython(filePath: string): string {
+  try {
+    const script = String.raw`
 import sys, re
 
-with open('${escapedPath}', 'rb') as f:
+with open(sys.argv[1], 'rb') as f:
     data = f.read()
 
 # Method 1: Extract UTF-16LE text (common in .doc files)
@@ -36,21 +177,9 @@ except:
 
 if texts:
     result = '\\n'.join(texts)
-    # Find the position of the first meaningful Chinese sentence
-    # Common .doc contract headers in Chinese
-    markers = ['推广补充协议', '采购合同', '销售合同', '服务合同', '租赁合同',
-               '劳动合同', '技术合同', '咨询合同', '物流合同', '保密协议',
-               '甲方', '乙方', '合同编号', '协议编号']
-    start_pos = -1
-    for m in markers:
-        pos = result.find(m)
-        if pos >= 0:
-            start_pos = pos
-            break
-    if start_pos > 0:
-        result = result[start_pos:]
-    # Find end of content - look for the last meaningful Chinese text before binary tail
-    # Find the last occurrence of common contract ending patterns
+    # Trim only obvious binary tail. Do not trim the beginning by marker:
+    # Word .doc files often contain repeated fragments, and the first matching
+    # marker can appear in the middle of the contract.
     end_markers = ['盖章', '签字', '日期', 'PAGE', '以下无正文']
     end_pos = -1
     end_marker_used = ''
@@ -95,7 +224,8 @@ if lines:
     print('\\n'.join(lines))
 else:
     sys.exit(1)
-PYEOF`, {
+`;
+    const result = execFileSync('python3', ['-c', script, filePath], {
       timeout: 30000,
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024,
@@ -103,7 +233,7 @@ PYEOF`, {
     const text = result.toString().trim();
     if (text.length > 100) {
       console.log(`Extracted ${text.length} chars from .doc using python3`);
-      return text;
+      return normalizeExtractedText(text);
     }
   } catch {
     // give up
@@ -112,31 +242,171 @@ PYEOF`, {
 }
 
 /**
- * Extract text content from a file. Supports TXT, DOC, DOCX, PDF (with OCR fallback).
+ * Extract text content from a legacy .doc file.
+ */
+function extractDocText(filePath: string): string {
+  const candidates = [
+    { source: 'textutil', text: extractDocTextWithTextutil(filePath) },
+    { source: 'antiword', text: extractDocTextWithAntiword(filePath) },
+    { source: 'python3', text: extractDocTextWithPython(filePath) },
+  ].filter((c) => c.text.length > 0);
+
+  if (candidates.length === 0) return '';
+
+  candidates.sort((a, b) => scoreContractText(b.text) - scoreContractText(a.text));
+  const best = candidates[0];
+  console.log(`Selected .doc extraction from ${best.source} (${best.text.length} chars, score ${Math.round(scoreContractText(best.text))})`);
+  return best.text;
+}
+
+function extractDocxTextWithTextutil(filePath: string): string {
+  if (process.platform !== 'darwin' || !hasCommand('textutil')) return '';
+  try {
+    const result = execFileSync('textutil', ['-convert', 'txt', '-stdout', filePath], {
+      timeout: 30000,
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+    });
+    return normalizeExtractedText(result.toString());
+  } catch (err) {
+    console.error('textutil .docx extraction failed:', (err as Error).message);
+    return '';
+  }
+}
+
+function extractDocxTextFromXml(filePath: string): string {
+  const entries = listZipEntries(filePath).filter((entry) => (
+    entry === 'word/document.xml'
+    || /^word\/header\d+\.xml$/.test(entry)
+    || /^word\/footer\d+\.xml$/.test(entry)
+    || entry === 'word/comments.xml'
+    || entry === 'word/footnotes.xml'
+    || entry === 'word/endnotes.xml'
+  ));
+
+  const parts: string[] = [];
+  for (const entry of entries) {
+    const text = xmlToPlainText(unzipText(filePath, entry));
+    if (text) parts.push(`[${entry}]\n${text}`);
+  }
+  return normalizeExtractedText(parts.join('\n\n'));
+}
+
+async function extractDocxText(filePath: string, maxLength: number): Promise<string> {
+  const candidates: { source: string; text: string }[] = [];
+  try {
+    const result = await mammoth.extractRawText({ path: filePath });
+    candidates.push({ source: 'mammoth', text: result.value });
+  } catch (err) {
+    console.error('DOCX mammoth extraction error:', (err as Error).message);
+  }
+
+  candidates.push({ source: 'textutil', text: extractDocxTextWithTextutil(filePath) });
+  candidates.push({ source: 'word-xml', text: extractDocxTextFromXml(filePath) });
+
+  const mediaText = ocrOfficeMediaImages(filePath, maxLength);
+  if (mediaText) candidates.push({ source: 'embedded-image-ocr', text: mediaText });
+
+  const text = mergeTextCandidates(candidates, maxLength);
+  if (text) {
+    console.log(`Selected/merged .docx extraction (${text.length} chars)`);
+  }
+  return text;
+}
+
+function extractCsvText(filePath: string, maxLength: number): string {
+  return normalizeExtractedText(fs.readFileSync(filePath, 'utf-8')).slice(0, maxLength);
+}
+
+function extractXlsText(filePath: string, maxLength: number): string {
+  if (hasCommand('xls2csv')) {
+    try {
+      const result = execFileSync('xls2csv', ['-x', filePath], {
+        timeout: 30000,
+        encoding: 'utf-8',
+        maxBuffer: 50 * 1024 * 1024,
+      });
+      return normalizeExtractedText(result.toString()).slice(0, maxLength);
+    } catch (err) {
+      console.error('xls2csv .xls extraction failed:', (err as Error).message);
+    }
+  }
+
+  const text = extractDocTextWithTextutil(filePath);
+  return text.slice(0, maxLength);
+}
+
+function extractXlsxText(filePath: string, maxLength: number): string {
+  const entries = listZipEntries(filePath);
+  const sharedStringsXml = unzipText(filePath, 'xl/sharedStrings.xml');
+  const sharedStrings = [...sharedStringsXml.matchAll(/<si[\s\S]*?<\/si>/g)].map((match) => {
+    const texts = [...match[0].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((textMatch) => decodeXmlText(textMatch[1] || ''));
+    return texts.join('');
+  });
+
+  const sheetEntries = entries
+    .filter((entry) => /^xl\/worksheets\/sheet\d+\.xml$/.test(entry))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  const output: string[] = [];
+  for (const sheetEntry of sheetEntries) {
+    output.push(`## 工作表：${path.basename(sheetEntry, '.xml')}`);
+    const xml = unzipText(filePath, sheetEntry);
+    const rows = xml.match(/<row[\s\S]*?<\/row>/g) || [];
+    for (const row of rows) {
+      const cells = [...row.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)].map((cellMatch) => {
+        const attrs = cellMatch[1] || '';
+        const body = cellMatch[2] || '';
+        const type = attrs.match(/\bt="([^"]+)"/)?.[1];
+        const value = body.match(/<v[^>]*>([\s\S]*?)<\/v>/)?.[1] || '';
+        const inline = body.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] || '';
+        if (type === 's') return sharedStrings[Number(value)] || '';
+        if (type === 'inlineStr') return decodeXmlText(inline);
+        return decodeXmlText(value);
+      }).map((cell) => cell.trim());
+      if (cells.some(Boolean)) output.push(cells.join('\t'));
+      if (output.join('\n').length >= maxLength) break;
+    }
+    if (output.join('\n').length >= maxLength) break;
+  }
+
+  return normalizeExtractedText(output.join('\n')).slice(0, maxLength);
+}
+
+/**
+ * Extract text content from a file. Supports TXT, CSV, DOC, DOCX, XLSX,
+ * images, and PDF (with OCR fallback).
  */
 export async function readFileContent(filePath: string, maxLength = 5000): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
 
-  if (ext === '.txt') {
-    return fs.readFileSync(filePath, 'utf-8').slice(0, maxLength);
+  if (ext === '.txt' || ext === '.csv' || ext === '.tsv') {
+    return extractCsvText(filePath, maxLength);
   }
 
   if (ext === '.doc') {
     const text = extractDocText(filePath);
     if (text) {
-      return text.replace(/\s+/g, ' ').trim().slice(0, maxLength);
+      return normalizeExtractedText(text).slice(0, maxLength);
     }
     console.error('Failed to extract .doc content, no tools available');
     return '';
   }
 
   if (ext === '.docx') {
-    try {
-      const result = await mammoth.extractRawText({ path: filePath });
-      return result.value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
-    } catch (err) {
-      console.error('DOCX extraction error:', (err as Error).message);
-    }
+    return extractDocxText(filePath, maxLength);
+  }
+
+  if (ext === '.xlsx') {
+    return extractXlsxText(filePath, maxLength);
+  }
+
+  if (ext === '.xls') {
+    return extractXlsText(filePath, maxLength);
+  }
+
+  if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff'].includes(ext)) {
+    return ocrImageFile(filePath, maxLength);
   }
 
   if (ext === '.pdf') {
@@ -220,7 +490,7 @@ async function ocrPdfWithPdftoppm(filePath: string, maxLength: number): Promise<
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (err) {
-      throw new Error(`pdftoppm failed (is poppler installed? brew install poppler): ${(err as Error).message}`);
+      throw new Error(`pdftoppm failed (install poppler-utils in Linux/Docker): ${(err as Error).message}`);
     }
 
     const pageFiles = fs.readdirSync(tmpDir)
@@ -236,18 +506,7 @@ async function ocrPdfWithPdftoppm(filePath: string, maxLength: number): Promise<
       const pngPath = path.join(tmpDir, pageFile);
       try {
         const imageBuffer = fs.readFileSync(pngPath);
-        // Pipe via stdin (use '-' as input) — avoids macOS leptonica path bug
-        const text = execFileSync(
-          'tesseract',
-          ['-', 'stdout', '-l', 'chi_sim+eng'],
-          {
-            input: imageBuffer,
-            timeout: 60000,
-            encoding: 'utf-8',
-            maxBuffer: 50 * 1024 * 1024,
-            stdio: ['pipe', 'pipe', 'ignore'],
-          },
-        ).toString();
+        const text = ocrImageBuffer(imageBuffer);
         fullText += text + '\n';
       } catch (err) {
         console.error(`OCR page ${pageFile} failed:`, (err as Error).message);
@@ -260,4 +519,53 @@ async function ocrPdfWithPdftoppm(filePath: string, maxLength: number): Promise<
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
+}
+
+function ocrImageBuffer(imageBuffer: Buffer): string {
+  if (!hasCommand('tesseract')) {
+    throw new Error('tesseract is not installed');
+  }
+  return execFileSync(
+    'tesseract',
+    ['-', 'stdout', '-l', 'chi_sim+eng'],
+    {
+      input: imageBuffer,
+      timeout: 60000,
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    },
+  ).toString();
+}
+
+function ocrImageFile(filePath: string, maxLength: number): string {
+  try {
+    const text = ocrImageBuffer(fs.readFileSync(filePath));
+    return normalizeExtractedText(text).slice(0, maxLength);
+  } catch (err) {
+    console.error('Image OCR error:', (err as Error).message);
+    return '';
+  }
+}
+
+function ocrOfficeMediaImages(filePath: string, maxLength: number): string {
+  if (!hasCommand('unzip') || !hasCommand('tesseract')) return '';
+  const entries = listZipEntries(filePath)
+    .filter((entry) => /^word\/media\/.+\.(png|jpe?g|webp|bmp|tiff?)$/i.test(entry))
+    .slice(0, 12);
+  const parts: string[] = [];
+  for (const entry of entries) {
+    try {
+      const imageBuffer = execFileSync('unzip', ['-p', filePath, entry], {
+        timeout: 30000,
+        maxBuffer: 30 * 1024 * 1024,
+      });
+      const text = normalizeExtractedText(ocrImageBuffer(imageBuffer));
+      if (text) parts.push(`[${entry} OCR]\n${text}`);
+    } catch (err) {
+      console.error(`Embedded image OCR failed (${entry}):`, (err as Error).message);
+    }
+    if (parts.join('\n').length >= maxLength) break;
+  }
+  return normalizeExtractedText(parts.join('\n\n')).slice(0, maxLength);
 }

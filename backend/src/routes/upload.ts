@@ -79,21 +79,30 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowedMimes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/msword',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'text/csv',
+      'text/tab-separated-values',
       'text/plain',
       'image/jpeg',
       'image/png',
       'image/jpg',
+      'image/webp',
+      'image/bmp',
+      'image/tiff',
     ];
-    if (allowedMimes.includes(file.mimetype)) {
+    const allowedExts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.tsv', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('不支持的文件类型，请上传 PDF、DOCX、TXT、JPG 或 PNG 文件'));
+      cb(new Error('不支持的文件类型，请上传 PDF、DOC、DOCX、XLS、XLSX、CSV、TXT、JPG、PNG、WEBP 或 TIFF 文件'));
     }
   },
 });
@@ -206,7 +215,7 @@ router.use((err: Error, _req: AuthRequest, res: Response, _next: () => void) => 
   if (err.message?.includes('不支持的文件类型')) {
     res.status(400).json({ error: err.message });
   } else if (err.message?.includes('File too large')) {
-    res.status(400).json({ error: '文件大小不能超过 20MB' });
+    res.status(400).json({ error: '文件大小不能超过 50MB' });
   } else {
     res.status(500).json({ error: '文件上传失败' });
   }

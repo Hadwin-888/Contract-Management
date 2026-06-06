@@ -87,6 +87,14 @@ function initTables() {
       summary TEXT DEFAULT '',
       template_id TEXT,
       template_version INTEGER,
+      template_content_snapshot TEXT DEFAULT '',
+      contract_type TEXT DEFAULT '',
+      extracted_fields TEXT DEFAULT '{}',
+      rule_issues TEXT DEFAULT '[]',
+      ai_issues TEXT DEFAULT '[]',
+      reviewed_issues TEXT DEFAULT '[]',
+      need_human_review_count INTEGER NOT NULL DEFAULT 0,
+      audit_version TEXT DEFAULT 'structured-v1',
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE
     );
@@ -167,6 +175,21 @@ function initTables() {
     const recordColumns = db.prepare("PRAGMA table_info('audit_records')").all() as { name: string }[];
     if (!recordColumns.some((c) => c.name === 'summary')) {
       db.exec("ALTER TABLE audit_records ADD COLUMN summary TEXT DEFAULT ''");
+    }
+    const auditRecordMigrations: { col: string; def: string }[] = [
+      { col: 'template_content_snapshot', def: "TEXT DEFAULT ''" },
+      { col: 'contract_type', def: "TEXT DEFAULT ''" },
+      { col: 'extracted_fields', def: "TEXT DEFAULT '{}'" },
+      { col: 'rule_issues', def: "TEXT DEFAULT '[]'" },
+      { col: 'ai_issues', def: "TEXT DEFAULT '[]'" },
+      { col: 'reviewed_issues', def: "TEXT DEFAULT '[]'" },
+      { col: 'need_human_review_count', def: 'INTEGER NOT NULL DEFAULT 0' },
+      { col: 'audit_version', def: "TEXT DEFAULT 'structured-v1'" },
+    ];
+    for (const m of auditRecordMigrations) {
+      if (!recordColumns.some((c) => c.name === m.col)) {
+        db.exec(`ALTER TABLE audit_records ADD COLUMN ${m.col} ${m.def}`);
+      }
     }
   } catch {
     // ignore

@@ -214,7 +214,7 @@ async function handleDelete(id: string) {
 async function handleAiExtract() {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = '.pdf,.docx,.doc,.txt,.jpg,.jpeg,.png'
+  input.accept = '.pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff'
   input.onchange = async (e: any) => {
     const file = e.target?.files?.[0]
     if (!file) return
@@ -290,7 +290,7 @@ async function handleAiExtract() {
 async function handleUploadContract(row: any) {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = '.pdf,.docx,.doc,.txt,.jpg,.jpeg,.png'
+  input.accept = '.pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff'
   input.onchange = async (e: any) => {
     const file = e.target?.files?.[0]
     if (!file) return
@@ -311,7 +311,7 @@ async function handleUploadContract(row: any) {
 async function handleUploadInsurance(row: any) {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = '.pdf,.docx,.doc,.txt,.jpg,.jpeg,.png'
+  input.accept = '.pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff'
   input.onchange = async (e: any) => {
     const file = e.target?.files?.[0]
     if (!file) return
