@@ -55,8 +55,13 @@ RUN apt-get update \
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/src/generated ./src/generated
 
-# Create data directory for SQLite
+# Generate Prisma client in production
+RUN npx prisma generate
+
+# Create data directory for SQLite compatibility
 RUN mkdir -p data
 
 EXPOSE 3001

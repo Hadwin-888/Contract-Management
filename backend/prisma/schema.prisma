@@ -1,0 +1,477 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String   @id @default(uuid())
+  username       String   @unique
+  passwordHash   String   @map("password_hash")
+  name           String
+  email          String?
+  department     String?
+  departmentCode String?  @map("department_code")
+  role           String   @default("clerk")
+  avatar         String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  contracts           Contract[]
+  auditRecords        AuditRecord[]
+  auditTemplates      AuditTemplate[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
+  taskComments        TaskComment[]
+  taskChangeLogs      TaskChangeLog[]
+  projectMembers      ProjectMember[]
+  progressUpdates     ProgressUpdate[]
+  procurementRequests ProcurementRequest[]
+  approvalRecords     ApprovalRecord[]
+  userRoles           UserRole[]
+  tasks               Task[]
+
+  @@map("users")
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  shortName String   @map("short_name")
+  name      String
+  headName  String   @default("") @map("head_name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("departments")
+}
+
+model Contract {
+  id                 String   @id @default(uuid())
+  name               String
+  partyA             String   @map("party_a")
+  partyB             String   @map("party_b")
+  type               String
+  status             String   @default("draft")
+  amount             Float    @default(0)
+  amountExcludingTax Float?   @map("amount_excluding_tax")
+  taxRate            Float?   @map("tax_rate")
+  qualityDeposit     String?  @map("quality_deposit")
+  contractNo         String?  @map("contract_no")
+  startDate          String   @map("start_date")
+  endDate            String   @map("end_date")
+  contractTerm       String?  @map("contract_term")
+  riskLevel          String   @default("low") @map("risk_level")
+  insuranceInfo      String?  @map("insurance_info")
+  insuranceDate      String?  @map("insurance_date")
+  filePath           String?  @map("file_path")
+  insuranceFilePath  String?  @map("insurance_file_path")
+  isAuditDraft       Boolean  @default(false) @map("is_audit_draft")
+  followDept         String?  @map("follow_dept")
+  costDept           String?  @map("cost_dept")
+  costCode           String?  @map("cost_code")
+  createdAt          DateTime @default(now()) @map("created_at")
+  userId             String?  @map("user_id")
+
+  user      User?         @relation(fields: [userId], references: [id])
+  uploads   Upload[]
+  audits    AuditRecord[]
+  reminders Reminder[]
+
+  @@map("contracts")
+}
+
+model Upload {
+  id           String   @id @default(uuid())
+  contractId   String?  @map("contract_id")
+  filename     String
+  originalName String   @map("original_name")
+  size         Int
+  mimeType     String   @map("mime_type")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@map("uploads")
+}
+
+model AuditRecord {
+  id                      String   @id @default(uuid())
+  contractId              String   @map("contract_id")
+  riskScore               Int      @default(0) @map("risk_score")
+  issuesCount             Int      @default(0) @map("issues_count")
+  status                  String   @default("pending")
+  analysis                String?
+  suggestions             String?
+  summary                 String   @default("")
+  templateId              String?  @map("template_id")
+  templateVersion         Int?     @map("template_version")
+  templateContentSnapshot String?  @map("template_content_snapshot")
+  contractType            String?  @map("contract_type")
+  extractedFields         String   @default("{}") @map("extracted_fields")
+  ruleIssues              String   @default("[]") @map("rule_issues")
+  aiIssues                String   @default("[]") @map("ai_issues")
+  reviewedIssues          String   @default("[]") @map("reviewed_issues")
+  needHumanReviewCount    Int      @default(0) @map("need_human_review_count")
+  auditVersion            String   @default("structured-v1") @map("audit_version")
+  createdAt               DateTime @default(now()) @map("created_at")
+  reviewedBy              String?  @map("reviewed_by")
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  reviewer User?    @relation(fields: [reviewedBy], references: [id])
+
+  @@map("audit_records")
+}
+
+model Reminder {
+  id            String   @id @default(uuid())
+  contractId    String   @map("contract_id")
+  contractName  String   @map("contract_name")
+  daysRemaining Int      @map("days_remaining")
+  type          String
+  priority      String   @default("medium")
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@map("reminders")
+}
+
+model AuditTemplate {
+  id             String   @id @default(uuid())
+  contractType   String   @unique @map("contract_type")
+  name           String
+  content        String
+  summaryContent String   @default("") @map("summary_content")
+  version        Int      @default(1)
+  updatedBy      String?  @map("updated_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  updater User? @relation(fields: [updatedBy], references: [id])
+
+  @@map("audit_templates")
+}
+
+model StorageConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("storage_config")
+}
+
+model AiConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("ai_config")
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  status      String    @default("active")
+  startDate   DateTime? @map("start_date")
+  endDate     DateTime? @map("end_date")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tasks      Task[]
+  members    ProjectMember[]
+  changeLogs TaskChangeLog[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  userId    String @map("user_id")
+  role      String @default("member")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model Task {
+  id          String    @id @default(uuid())
+  projectId   String    @map("project_id")
+  parentId    String?   @map("parent_id")
+  title       String
+  description String?
+  status      String    @default("todo")
+  priority    String    @default("medium")
+  assigneeId  String?   @map("assignee_id")
+  startDate   DateTime? @map("start_date")
+  dueDate     DateTime? @map("due_date")
+  completedAt DateTime? @map("completed_at")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent          Task?            @relation("TaskSubtasks", fields: [parentId], references: [id])
+  subtasks        Task[]           @relation("TaskSubtasks")
+  assignee        User?            @relation(fields: [assigneeId], references: [id])
+  comments        TaskComment[]
+  changeLogs      TaskChangeLog[]
+  dependencies    TaskDependency[] @relation("TaskDependents")
+  dependents      TaskDependency[] @relation("TaskDependencies")
+  progressUpdates ProgressUpdate[]
+
+  @@map("tasks")
+}
+
+model TaskDependency {
+  id              String @id @default(uuid())
+  taskId          String @map("task_id")
+  dependsOnTaskId String @map("depends_on_task_id")
+
+  task      Task @relation("TaskDependents", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("TaskDependencies", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String
+  mentions  String   @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("task_comments")
+}
+
+model TaskChangeLog {
+  id        String   @id @default(uuid())
+  projectId String?  @map("project_id")
+  taskId    String?  @map("task_id")
+  userId    String   @map("user_id")
+  action    String
+  fieldName String?  @map("field_name")
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id])
+
+  @@map("task_change_logs")
+}
+
+model ProgressUpdate {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  progress  Int      @default(0)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("progress_updates")
+}
+
+model ProcurementRequest {
+  id              String   @id @default(uuid())
+  title           String
+  description     String?
+  category        String?
+  amount          Float    @default(0)
+  quantity        Int      @default(1)
+  unit            String?
+  requesterId     String   @map("requester_id")
+  department      String?
+  status          String   @default("draft")
+  urgency         String   @default("normal")
+  reason          String?
+  supplierId      String?  @map("supplier_id")
+  purchaseOrderId String?  @map("purchase_order_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  requester     User             @relation(fields: [requesterId], references: [id])
+  supplier      Supplier?        @relation(fields: [supplierId], references: [id])
+  approvals     ApprovalRecord[]
+  purchaseOrder PurchaseOrder?   @relation("PurchaseOrderRequests", fields: [purchaseOrderId], references: [id])
+
+  @@map("procurement_requests")
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  code      String?  @unique
+  contact   String?
+  phone     String?
+  email     String?
+  address   String?
+  category  String?
+  status    String   @default("active")
+  remark    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  procurementRequests ProcurementRequest[]
+  purchaseOrders      PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id           String    @id @default(uuid())
+  orderNo      String    @unique @map("order_no")
+  supplierId   String    @map("supplier_id")
+  totalAmount  Float     @default(0) @map("total_amount")
+  status       String    @default("pending")
+  orderedDate  DateTime? @map("ordered_date")
+  receivedDate DateTime? @map("received_date")
+  remark       String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  supplier            Supplier             @relation(fields: [supplierId], references: [id])
+  procurementRequests ProcurementRequest[] @relation("PurchaseOrderRequests")
+
+  @@map("purchase_orders")
+}
+
+model ApprovalFlow {
+  id          String   @id @default(uuid())
+  name        String
+  module      String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  steps ApprovalFlowStep[]
+
+  @@map("approval_flows")
+}
+
+model ApprovalFlowStep {
+  id         String  @id @default(uuid())
+  flowId     String  @map("flow_id")
+  stepOrder  Int     @map("step_order")
+  roleName   String  @map("role_name")
+  actionType String  @default("approve")
+  required   Boolean @default(true)
+
+  flow ApprovalFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@map("approval_flow_steps")
+}
+
+model ApprovalRecord {
+  id          String   @id @default(uuid())
+  flowId      String?  @map("flow_id")
+  stepId      String?  @map("step_id")
+  requestId   String   @map("request_id")
+  requestType String   @map("request_type")
+  approverId  String   @map("approver_id")
+  status      String   @default("pending")
+  comment     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  approver           User                @relation(fields: [approverId], references: [id])
+  procurementRequest ProcurementRequest? @relation(fields: [requestId], references: [id])
+
+  @@map("approval_records")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  content   String?
+  module    String?
+  refId     String?  @map("ref_id")
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id           String  @id @default(uuid())
+  userId       String  @map("user_id")
+  type         String
+  emailEnabled Boolean @default(true) @map("email_enabled")
+  inAppEnabled Boolean @default(true) @map("in_app_enabled")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, type])
+  @@map("notification_preferences")
+}
+
+model CustomRole {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("custom_roles")
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role CustomRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  module      String
+  action      String
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@unique([module, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       CustomRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}

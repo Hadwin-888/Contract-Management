@@ -1,6 +1,23 @@
-version: '3.8'
-
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: admin-postgres
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
+      - POSTGRES_DB=admin_platform
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d admin_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Backend API
   backend:
     build:
@@ -15,9 +32,12 @@ services:
       - JWT_SECRET=${JWT_SECRET:-contract-mgmt-prod-secret-key}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - CORS_ORIGINS=https://contract.dianhaha.xyz
+      - DATABASE_URL=postgresql://admin:${DB_PASSWORD:-admin123}@postgres:5432/admin_platform
     volumes:
-      - contract-data:/app/data
       - contract-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
@@ -38,5 +58,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  contract-data:
+  postgres-data:
   contract-uploads:
