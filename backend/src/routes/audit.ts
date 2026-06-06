@@ -1,13 +1,13 @@
 import { Router, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
 import { buildDeptFilter, requireContractAccess, canAccessContract } from '../middleware/permissions.js';
 import { analyzeContract, generateSummary, extractContractInfo, runBasicContractChecks, calculateRiskScore } from '../services/ai.js';
 import { readFileContent } from '../services/file-reader.js';
+import prisma from '../prisma.js';
+import { toSnakeArray, toSnakeRecord } from '../serializers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.join(__dirname, '..', '..', 'uploads');
@@ -37,42 +37,46 @@ function hydrateAuditRecord<T extends Record<string, unknown>>(record: T): T {
 }
 
 // GET /api/audit — list audit records (with dept filtering)
-router.get('/', (req: AuthRequest, res: Response) => {
-  const db = getDb();
+router.get('/', async (req: AuthRequest, res: Response) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
 
-  const deptFilter = buildDeptFilter(req);
-
-  const countResult = db.prepare(`
-    SELECT COUNT(*) as count FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE 1=1${deptFilter.clause}
-  `).get(...deptFilter.params) as { count: number };
-  const total = countResult.count;
+  const deptFilter = await buildDeptFilter(req);
+  const department = deptFilter.params[0] as string | undefined;
+  const where = department ? { contract: { followDept: department } } : {};
+  const total = await prisma.auditRecord.count({ where });
 
   const offset = (page - 1) * pageSize;
-  const items = (db.prepare(`
-    SELECT a.*, c.name as contract_name
-    FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE 1=1${deptFilter.clause}
-    ORDER BY a.created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...deptFilter.params, pageSize, offset) as Record<string, unknown>[]).map(hydrateAuditRecord);
+  const rows = await prisma.auditRecord.findMany({
+    where,
+    include: { contract: { select: { name: true } } },
+    orderBy: { createdAt: 'desc' },
+    skip: offset,
+    take: pageSize,
+  });
+  const items = rows.map((row) => hydrateAuditRecord({ ...toSnakeRecord(row), contract_name: row.contract.name, contract: undefined } as Record<string, unknown>));
 
   res.json({ items, total, page, pageSize });
 });
 
 // GET /api/audit/:id
-router.get('/:id', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const record = db.prepare(`
-    SELECT a.*, c.name as contract_name, c.party_a, c.party_b, c.type, c.amount, c.start_date, c.end_date, c.file_path
-    FROM audit_records a
-    LEFT JOIN contracts c ON a.contract_id = c.id
-    WHERE a.id = ?
-  `).get(req.params.id as string) as Record<string, unknown> | undefined;
+router.get('/:id', async (req: AuthRequest, res: Response) => {
+  const row = await prisma.auditRecord.findUnique({
+    where: { id: req.params.id as string },
+    include: { contract: true },
+  });
+  const record = row ? {
+    ...toSnakeRecord(row),
+    contract_name: row.contract.name,
+    party_a: row.contract.partyA,
+    party_b: row.contract.partyB,
+    type: row.contract.type,
+    amount: row.contract.amount,
+    start_date: row.contract.startDate,
+    end_date: row.contract.endDate,
+    file_path: row.contract.filePath,
+    contract: undefined,
+  } as Record<string, unknown> : undefined;
 
   if (!record) {
     res.status(404).json({ error: '审核记录不存在' });
@@ -82,9 +86,8 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
   // Check access to the associated contract
   const contractId = record.contract_id as string;
   if (contractId) {
-    const db2 = getDb();
-    const contract = db2.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
-    if (contract && !canAccessContract(req, contract)) {
+    const contract = row?.contract ? toSnakeRecord(row.contract) as Record<string, unknown> : undefined;
+    if (contract && !(await canAccessContract(req, contract))) {
       res.status(403).json({ error: '无权访问该审核记录' });
       return;
     }
@@ -94,17 +97,16 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
 });
 
 // DELETE /api/audit/clear — clear all audit records (admin+ only)
-router.delete('/clear', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const result = db.prepare('DELETE FROM audit_records').run();
-  console.log(`Cleared ${result.changes} audit records by user ${req.userId}`);
-  res.json({ message: `已清除 ${result.changes} 条审核记录` });
+router.delete('/clear', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const result = await prisma.auditRecord.deleteMany();
+  console.log(`Cleared ${result.count} audit records by user ${req.userId}`);
+  res.json({ message: `已清除 ${result.count} 条审核记录` });
 });
 
 // DELETE /api/audit/:id — delete a single audit record
-router.delete('/:id', (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(req.params.id as string) as Record<string, unknown> | undefined;
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  const row = await prisma.auditRecord.findUnique({ where: { id: req.params.id as string }, include: { contract: true } });
+  const record = row ? toSnakeRecord(row) as Record<string, unknown> : undefined;
   if (!record) {
     res.status(404).json({ error: '审核记录不存在' });
     return;
@@ -113,14 +115,14 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
   // Check access
   const contractId = record.contract_id as string;
   if (contractId) {
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
-    if (contract && !canAccessContract(req, contract)) {
+    const contract = row?.contract ? toSnakeRecord(row.contract) as Record<string, unknown> : undefined;
+    if (contract && !(await canAccessContract(req, contract))) {
       res.status(403).json({ error: '无权删除该审核记录' });
       return;
     }
   }
 
-  db.prepare('DELETE FROM audit_records WHERE id = ?').run(req.params.id as string);
+  await prisma.auditRecord.delete({ where: { id: req.params.id as string } });
   res.json({ message: '审核记录已删除' });
 });
 
@@ -133,13 +135,11 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  const contract = requireContractAccess(req, res, contractId);
+  const contract = await requireContractAccess(req, res, contractId);
   if (!contract) return;
 
-  const db = getDb();
-
   try {
-    const template = db.prepare('SELECT * FROM audit_templates WHERE contract_type = ?').get(contract.type as string) as { id: string; content: string; summary_content: string; version: number } | undefined;
+    const template = await prisma.auditTemplate.findUnique({ where: { contractType: contract.type as string } });
 
     let templateId: string | null = null;
     let templateVersion: number | null = null;
@@ -172,10 +172,17 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       try {
         const extracted = await extractContractInfo(fileContent, contract.type as string);
         extractedFields = { ...extractedFields, ...extracted };
-        db.prepare(`
-          UPDATE contracts SET name=?, party_a=?, party_b=?, amount=?, start_date=?, end_date=?
-          WHERE id=?
-        `).run(extracted.name, extracted.partyA, extracted.partyB, extracted.amount, extracted.startDate, extracted.endDate, contractId);
+        await prisma.contract.update({
+          where: { id: contractId },
+          data: {
+            name: extracted.name,
+            partyA: extracted.partyA,
+            partyB: extracted.partyB,
+            amount: extracted.amount,
+            startDate: extracted.startDate,
+            endDate: extracted.endDate,
+          },
+        });
         contract.name = extracted.name;
         contract.party_a = extracted.partyA;
         contract.party_b = extracted.partyB;
@@ -216,7 +223,7 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
           startDate: contract.start_date as string,
           endDate: contract.end_date as string,
         },
-        template?.summary_content,
+        template?.summaryContent,
         fileContent || undefined,
       );
     } catch (summaryError) {
@@ -229,43 +236,33 @@ router.post('/analyze', async (req: AuthRequest, res: Response) => {
       templateVersion = template.version;
     }
 
-    const id = uuidv4();
     const aiIssues = analysis.issues || [];
     const reviewedIssues = [...ruleIssues, ...aiIssues];
     const score = calculateRiskScore(reviewedIssues);
     const suggestionsJson = JSON.stringify(analysis.suggestions);
 
-    db.prepare(`
-      INSERT INTO audit_records (
-        id, contract_id, risk_score, issues_count, status, analysis, suggestions, summary,
-        template_id, template_version, template_content_snapshot, contract_type,
-        extracted_fields, rule_issues, ai_issues, reviewed_issues,
-        need_human_review_count, audit_version
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      contractId,
-      score.riskScore,
-      score.metrics.totalIssues,
-      score.status,
-      analysis.analysis,
-      suggestionsJson,
-      summary,
-      templateId,
-      templateVersion,
-      template?.content || '',
-      contract.type as string || '',
-      JSON.stringify(extractedFields),
-      JSON.stringify(ruleIssues),
-      JSON.stringify(aiIssues),
-      JSON.stringify(reviewedIssues),
-      score.metrics.needHumanReviewCount,
-      'structured-v1',
-    );
-
-    const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(id) as Record<string, unknown>;
-    res.status(201).json(hydrateAuditRecord(record));
+    const record = await prisma.auditRecord.create({
+      data: {
+        contractId,
+        riskScore: score.riskScore,
+        issuesCount: score.metrics.totalIssues,
+        status: score.status,
+        analysis: analysis.analysis,
+        suggestions: suggestionsJson,
+        summary,
+        templateId,
+        templateVersion,
+        templateContentSnapshot: template?.content || '',
+        contractType: contract.type as string || '',
+        extractedFields: JSON.stringify(extractedFields),
+        ruleIssues: JSON.stringify(ruleIssues),
+        aiIssues: JSON.stringify(aiIssues),
+        reviewedIssues: JSON.stringify(reviewedIssues),
+        needHumanReviewCount: score.metrics.needHumanReviewCount,
+        auditVersion: 'structured-v1',
+      },
+    });
+    res.status(201).json(hydrateAuditRecord(toSnakeRecord(record) as Record<string, unknown>));
   } catch (error) {
     console.error('AI analysis failed:', error);
     res.status(500).json({

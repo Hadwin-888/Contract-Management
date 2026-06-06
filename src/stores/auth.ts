@@ -50,6 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
   function setAuth(newToken: string, newUser: User) {
     token.value = newToken
     user.value = newUser
+    initialized.value = true
     sessionStorage.setItem('token', newToken)
     sessionStorage.setItem('user', JSON.stringify(newUser))
   }

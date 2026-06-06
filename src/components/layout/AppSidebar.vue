@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   LayoutDashboard,
   FileText,
   ShieldCheck,
-  Bell,
   BarChart3,
   Settings,
   LogOut,
   ClipboardList,
   ShoppingCart,
-  CheckCircle,
+  ChevronDown,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 
@@ -28,28 +27,82 @@ interface MenuItem {
   permission: string
 }
 
-const allMenuItems: MenuItem[] = [
+interface SubMenuItem {
+  key: string
+  path: string
+  permission: string
+}
+
+interface GroupMenuItem {
+  key: string
+  icon: any
+  permission: string
+  children: SubMenuItem[]
+}
+
+const contractMenuOpen = ref(false)
+
+const topMenuItems: MenuItem[] = [
   { key: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, permission: 'dashboard' },
   { key: 'nav.projects', path: '/projects', icon: ClipboardList, permission: 'projects' },
-  { key: 'nav.contracts', path: '/contracts', icon: FileText, permission: 'contracts' },
-  { key: 'nav.audit', path: '/audit', icon: ShieldCheck, permission: 'audit' },
   { key: 'nav.procurement', path: '/procurement', icon: ShoppingCart, permission: 'procurement' },
-  { key: 'nav.reminders', path: '/reminders', icon: Bell, permission: 'reminders' },
+]
+
+// 合同管理分组（含 AI审核 子项）
+const contractGroup: GroupMenuItem = {
+  key: 'nav.contracts',
+  icon: FileText,
+  permission: 'contracts',
+  children: [
+    { key: 'nav.contracts', path: '/contracts', permission: 'contracts' },
+    { key: 'nav.audit', path: '/audit', permission: 'audit' },
+  ],
+}
+
+const bottomMenuItems: MenuItem[] = [
   { key: 'nav.statistics', path: '/statistics', icon: BarChart3, permission: 'statistics' },
-  { key: 'nav.approvals', path: '/approvals', icon: CheckCircle, permission: 'approvals' },
   { key: 'nav.settings', path: '/settings', icon: Settings, permission: 'settings' },
 ]
 
 const role = computed(() => authStore.role)
 
-const menuItems = computed(() => {
+const visibleTopItems = computed(() => {
   const r = role.value
   if (!r) return []
-  return allMenuItems.filter((item) => authStore.hasPermission(item.permission as any))
+  return topMenuItems.filter((item) => authStore.hasPermission(item.permission as any))
+})
+
+const visibleContractGroup = computed(() => {
+  const r = role.value
+  if (!r) return null
+  if (!authStore.hasPermission(contractGroup.permission as any) &&
+      !contractGroup.children.some((c) => authStore.hasPermission(c.permission as any))) {
+    return null
+  }
+  return contractGroup
+})
+
+const visibleBottomItems = computed(() => {
+  const r = role.value
+  if (!r) return []
+  return bottomMenuItems.filter((item) => authStore.hasPermission(item.permission as any))
 })
 
 const isActive = (path: string) => {
   return route.path === path || route.path.startsWith(path + '/')
+}
+
+const isContractGroupActive = computed(() => {
+  return contractGroup.children.some((c) => isActive(c.path))
+})
+
+// Auto-open contract group if a child is active
+if (isContractGroupActive.value) {
+  contractMenuOpen.value = true
+}
+
+function toggleContractMenu() {
+  contractMenuOpen.value = !contractMenuOpen.value
 }
 
 function handleLogout() {
@@ -68,8 +121,47 @@ function handleLogout() {
     </div>
 
     <nav class="sidebar-nav">
+      <!-- Top menu items -->
       <router-link
-        v-for="item in menuItems"
+        v-for="item in visibleTopItems"
+        :key="item.path"
+        :to="item.path"
+        class="nav-item"
+        :class="{ active: isActive(item.path) }"
+      >
+        <component :is="item.icon" :size="20" :stroke-width="1.5" />
+        <span>{{ t(item.key) }}</span>
+      </router-link>
+
+      <!-- Contract group (collapsible) -->
+      <div v-if="visibleContractGroup" class="nav-group">
+        <button
+          class="nav-item group-toggle"
+          :class="{ active: isContractGroupActive }"
+          @click="toggleContractMenu"
+        >
+          <component :is="visibleContractGroup.icon" :size="20" :stroke-width="1.5" />
+          <span>{{ t(visibleContractGroup.key) }}</span>
+          <ChevronDown :size="16" class="group-arrow" :class="{ open: contractMenuOpen }" />
+        </button>
+        <Transition name="slide">
+          <div v-if="contractMenuOpen" class="sub-menu">
+            <router-link
+              v-for="child in visibleContractGroup.children"
+              :key="child.path"
+              :to="child.path"
+              class="nav-item sub-item"
+              :class="{ active: isActive(child.path) }"
+            >
+              <span>{{ t(child.key) }}</span>
+            </router-link>
+          </div>
+        </Transition>
+      </div>
+
+      <!-- Bottom menu items -->
+      <router-link
+        v-for="item in visibleBottomItems"
         :key="item.path"
         :to="item.path"
         class="nav-item"
@@ -167,6 +259,59 @@ function handleLogout() {
   background: rgba(0, 122, 255, 0.1);
   color: var(--apple-blue);
   font-weight: 600;
+}
+
+/* Group toggle */
+.nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-toggle {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.group-arrow {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.group-arrow.open {
+  transform: rotate(180deg);
+}
+
+/* Sub menu */
+.sub-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 12px;
+}
+
+.sub-item {
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+/* Slide transition */
+.slide-enter-active,
+.slide-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+
+.slide-enter-to,
+.slide-leave-from {
+  opacity: 1;
+  max-height: 100px;
 }
 
 .sidebar-footer {

@@ -6,15 +6,18 @@ import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const authStore = useAuthStore()
-const isLoginPage = computed(() => route.path === '/login')
+const shouldUseAppLayout = computed(() => route.meta.layout !== 'blank' && authStore.isAuthenticated)
 
 onMounted(() => {
   // Refresh user profile from API on app start
-  authStore.init()
+  // Router guard already handles this, but call it here as fallback
+  if (!authStore.initialized) {
+    authStore.init()
+  }
 })
 </script>
 
 <template>
-  <AppLayout v-if="!isLoginPage" />
+  <AppLayout v-if="shouldUseAppLayout" />
   <router-view v-else />
 </template>

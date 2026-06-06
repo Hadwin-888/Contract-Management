@@ -4,6 +4,7 @@ import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
+import { resetTestPrisma } from './test-prisma.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.VITEST
@@ -477,6 +478,9 @@ export function closeDb() {
 }
 
 export function resetDb() {
+  if (process.env.VITEST) {
+    resetTestPrisma();
+  }
   closeDb();
   if (dbPath !== ':memory:') {
     try {

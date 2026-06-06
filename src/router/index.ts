@@ -17,6 +17,14 @@ function getDefaultRoute() {
   return '/login'
 }
 
+function redirectSafely(next: (path?: string) => void, fallback: string, currentPath: string) {
+  if (fallback === currentPath) {
+    next('/audit')
+    return
+  }
+  next(fallback)
+}
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -189,7 +197,7 @@ router.beforeEach(async (to, _from, next) => {
     const authStore = useAuthStore()
     const permission = to.meta.permission as Permission | undefined
     if (permission && !authStore.hasPermission(permission)) {
-      next(getDefaultRoute())
+      redirectSafely(next, getDefaultRoute(), to.path)
       return
     }
   }

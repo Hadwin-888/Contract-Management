@@ -1,27 +1,14 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
+import prisma from '../prisma.js';
 
 const router = Router();
 
 router.use(authenticateToken);
 
 // GET /api/ai-config — get AI configuration (admin+ can read)
-router.get('/', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-
-  // Check if ai_config table exists, create if not
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS ai_config (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT DEFAULT (datetime('now')),
-      updated_by TEXT,
-      FOREIGN KEY (updated_by) REFERENCES users(id)
-    )
-  `);
-
-  const configs = db.prepare('SELECT key, value FROM ai_config').all() as { key: string; value: string }[];
+router.get('/', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const configs = await prisma.aiConfig.findMany({ select: { key: true, value: true } });
 
   const result: Record<string, string> = {
     model: 'deepseek',
@@ -49,33 +36,8 @@ router.get('/', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Res
 });
 
 // PUT /api/ai-config — update AI configuration (super_admin only)
-router.put('/', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
+router.put('/', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   const { model, deepseekApiKey, minimaxApiKey, qwenApiKey } = req.body;
-
-  const db = getDb();
-
-  // Ensure table exists
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS ai_config (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT DEFAULT (datetime('now')),
-      updated_by TEXT,
-      FOREIGN KEY (updated_by) REFERENCES users(id)
-    )
-  `);
-
-  const upsert = db.prepare(`
-    INSERT INTO ai_config (key, value, updated_by, updated_at)
-    VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = datetime('now')
-  `);
-
-  const upsertMany = db.transaction((entries: { key: string; value: string }[]) => {
-    for (const entry of entries) {
-      upsert.run(entry.key, entry.value, req.userId);
-    }
-  });
 
   const entries: { key: string; value: string }[] = [];
 
@@ -98,10 +60,14 @@ router.put('/', requireRole('super_admin'), (req: AuthRequest, res: Response) =>
   }
 
   if (entries.length > 0) {
-    upsertMany(entries);
+    await prisma.$transaction(entries.map((entry) => prisma.aiConfig.upsert({
+      where: { key: entry.key },
+      update: { value: entry.value, updatedBy: req.userId },
+      create: { key: entry.key, value: entry.value, updatedBy: req.userId },
+    })));
   }
 
-  const configs = db.prepare('SELECT key, value FROM ai_config').all() as { key: string; value: string }[];
+  const configs = await prisma.aiConfig.findMany({ select: { key: true, value: true } });
   const result: Record<string, string> = {
     model: 'deepseek',
     deepseekApiKey: '',

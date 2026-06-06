@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { getDb } from '../db.js';
+import prisma from '../prisma.js';
 
 interface ContractInfo {
   name: string;
@@ -440,21 +440,8 @@ interface ModelConfig {
 /**
  * Read AI configuration from the database.
  */
-function getModelConfig(): ModelConfig {
-  const db = getDb();
-
-  // Ensure table exists
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS ai_config (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT DEFAULT (datetime('now')),
-      updated_by TEXT,
-      FOREIGN KEY (updated_by) REFERENCES users(id)
-    )
-  `);
-
-  const configs = db.prepare('SELECT key, value FROM ai_config').all() as { key: string; value: string }[];
+async function getModelConfig(): Promise<ModelConfig> {
+  const configs = await prisma.aiConfig.findMany({ select: { key: true, value: true } });
   const configMap: Record<string, string> = {};
   for (const c of configs) {
     configMap[c.key] = c.value;
@@ -520,7 +507,7 @@ export async function analyzeContract(
   fileContent?: string,
   ruleIssues: AuditIssue[] = [],
 ): Promise<AnalysisResult> {
-  const modelConfig = getModelConfig();
+  const modelConfig = await getModelConfig();
 
   const client = new OpenAI({
     apiKey: modelConfig.apiKey,
@@ -668,7 +655,7 @@ export async function generateSummary(
   summaryTemplate?: string,
   fileContent?: string,
 ): Promise<string> {
-  const modelConfig = getModelConfig();
+  const modelConfig = await getModelConfig();
 
   const client = new OpenAI({
     apiKey: modelConfig.apiKey,
@@ -728,7 +715,7 @@ export async function extractContractInfo(
   fileContent: string,
   contractType: string,
 ): Promise<ExtractedInfo> {
-  const modelConfig = getModelConfig();
+  const modelConfig = await getModelConfig();
 
   const client = new OpenAI({
     apiKey: modelConfig.apiKey,

@@ -1,17 +1,39 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useDashboardStore } from '@/stores/dashboard'
 import PageTransition from '@/components/common/PageTransition.vue'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import RiskWidget from '@/components/dashboard/RiskWidget.vue'
 import ExpiringContracts from '@/components/dashboard/ExpiringContracts.vue'
 import RecentUploads from '@/components/dashboard/RecentUploads.vue'
+import { CheckCircle, Clock, XCircle } from 'lucide-vue-next'
 
+const { t } = useI18n()
+const router = useRouter()
 const dashboardStore = useDashboardStore()
 
-onMounted(() => {
-  dashboardStore.fetchDashboard()
+const pendingApprovals = ref<any[]>([])
+
+onMounted(async () => {
+  await dashboardStore.fetchDashboard()
+  loadPendingApprovals()
 })
+
+async function loadPendingApprovals() {
+  try {
+    const { fetchProcurementRequests } = await import('@/api/procurement')
+    const result = await fetchProcurementRequests({ pageSize: 5, status: 'pending' })
+    pendingApprovals.value = result.items
+  } catch {
+    // ignore
+  }
+}
+
+function goToApprovals() {
+  router.push('/approvals')
+}
 </script>
 
 <template>
@@ -81,6 +103,30 @@ onMounted(() => {
                 <span>待审核</span>
                 <span class="audit-count">{{ dashboardStore.data.auditStatus.pending }}</span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pending approvals -->
+        <div class="approvals-section glass-card">
+          <div class="approvals-header">
+            <h3 class="widget-title">{{ t('approval.pendingApprovals') }}</h3>
+            <button class="view-all-btn" @click="goToApprovals">{{ t('common.more') }}</button>
+          </div>
+          <div class="approvals-list">
+            <div v-for="item in pendingApprovals" :key="item.id" class="approval-item">
+              <div class="approval-icon">
+                <Clock :size="16" />
+              </div>
+              <div class="approval-info">
+                <span class="approval-title">{{ item.title }}</span>
+                <span class="approval-meta">{{ item.requester?.name || '-' }} · {{ new Date(item.createdAt).toLocaleDateString('zh-CN') }}</span>
+              </div>
+              <el-tag size="small" type="warning">{{ t('approval.pendingApprovals') }}</el-tag>
+            </div>
+            <div v-if="pendingApprovals.length === 0" class="empty-approvals">
+              <CheckCircle :size="20" />
+              <span>{{ t('common.noData') }}</span>
             </div>
           </div>
         </div>
@@ -198,6 +244,53 @@ onMounted(() => {
   margin-left: auto;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* Approvals section */
+.approvals-section {
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.approvals-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.view-all-btn {
+  font-size: 12px;
+  color: var(--apple-blue, #007aff);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.view-all-btn:hover { background: rgba(0,122,255,0.08); }
+.approvals-list { display: flex; flex-direction: column; gap: 8px; }
+.approval-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #f9fafb);
+}
+.approval-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: rgba(255,149,0,0.1);
+  color: #ff9500;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.approval-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.approval-title { font-size: 13px; font-weight: 500; color: var(--text-primary, #111); }
+.approval-meta { font-size: 11px; color: var(--text-tertiary, #9ca3af); }
+.empty-approvals {
+  display: flex; align-items: center; gap: 8px;
+  padding: 16px; color: var(--text-tertiary, #9ca3af);
+  justify-content: center; font-size: 13px;
 }
 
 /* Responsive */

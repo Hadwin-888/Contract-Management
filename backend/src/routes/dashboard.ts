@@ -1,273 +1,152 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
-import { buildDeptFilter } from '../middleware/permissions.js';
+import prisma from '../prisma.js';
+import { toSnakeArray } from '../serializers.js';
 
 const router = Router();
 
 router.use(authenticateToken);
 
+async function scopedWhere(req: AuthRequest) {
+  const where: any = { isAuditDraft: false };
+  if (req.role === 'clerk' || req.role === 'head') {
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { department: true } });
+    where.followDept = user?.department || '__NO_ACCESS__';
+  }
+  return where;
+}
+
+function daysAgo(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function addDays(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 // GET /api/dashboard/stats
-router.get('/stats', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const deptFilter = buildDeptFilter(req);
-  const joinedDeptClause = deptFilter.clause.replace('follow_dept', 'c.follow_dept');
-  const activeWhere = `WHERE is_audit_draft = 0${deptFilter.clause}`;
-  const statusWhere = (status: string) => `WHERE is_audit_draft = 0 AND status = '${status}'${deptFilter.clause}`;
+router.get('/stats', requireRole('head', 'admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const baseWhere = await scopedWhere(req);
+  const activeWhere = { ...baseWhere, status: 'active' };
+  const expiringWhere = { ...activeWhere, endDate: { gte: new Date().toISOString().slice(0, 10), lte: addDays(30) } };
 
-  const totalContracts = (db.prepare(`SELECT COUNT(*) as count FROM contracts ${activeWhere}`).get(...deptFilter.params) as { count: number }).count;
-  const activeContracts = (db.prepare(`SELECT COUNT(*) as count FROM contracts ${statusWhere('active')}`).get(...deptFilter.params) as { count: number }).count;
-  const draftContracts = (db.prepare(`SELECT COUNT(*) as count FROM contracts ${statusWhere('draft')}`).get(...deptFilter.params) as { count: number }).count;
+  const [totalContracts, activeContracts, draftContracts, expiringSoon, expiringContracts, recentUploads, auditRows, auditPassed, auditFailed, auditPending] = await Promise.all([
+    prisma.contract.count({ where: baseWhere }),
+    prisma.contract.count({ where: activeWhere }),
+    prisma.contract.count({ where: { ...baseWhere, status: 'draft' } }),
+    prisma.contract.count({ where: expiringWhere }),
+    prisma.contract.findMany({ where: activeWhere, orderBy: { endDate: 'asc' }, take: 5 }),
+    prisma.upload.findMany({
+      where: { contract: baseWhere },
+      include: { contract: true },
+      orderBy: { uploadedAt: 'desc' },
+      take: 5,
+    }),
+    prisma.auditRecord.findMany({ where: { contract: baseWhere }, select: { riskScore: true } }),
+    prisma.auditRecord.count({ where: { status: 'pass', contract: baseWhere } }),
+    prisma.auditRecord.count({ where: { status: 'fail', contract: baseWhere } }),
+    prisma.auditRecord.count({ where: { status: 'pending', contract: baseWhere } }),
+  ]);
 
-  // Expiring within 30 days
-  const expiringSoon = db.prepare(`
-    SELECT COUNT(*) as count FROM contracts
-    WHERE is_audit_draft = 0
-    AND status = 'active'
-    AND end_date BETWEEN date('now') AND date('now', '+30 days')
-    ${deptFilter.clause}
-  `).get(...deptFilter.params) as { count: number };
-
-  // Average risk score from audit records
-  const avgRisk = db.prepare(`
-    SELECT AVG(a.risk_score) as avg
-    FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE c.is_audit_draft = 0${joinedDeptClause}
-  `).get(...deptFilter.params) as { avg: number | null };
-  const riskScore = avgRisk.avg ? Math.round(avgRisk.avg) : 75;
-
-  // Expiring contracts list (next 5)
-  const expiringContracts = db.prepare(`
-    SELECT * FROM contracts
-    WHERE is_audit_draft = 0
-    AND status = 'active'
-    ${deptFilter.clause}
-    ORDER BY end_date ASC
-    LIMIT 5
-  `).all(...deptFilter.params);
-
-  // Recent uploads (last 5)
-  const recentUploads = (db.prepare(`
-    SELECT u.id, u.original_name as name, u.uploaded_at, u.size
-    FROM uploads u
-    JOIN contracts c ON u.contract_id = c.id
-    WHERE c.is_audit_draft = 0${joinedDeptClause}
-    ORDER BY u.uploaded_at DESC
-    LIMIT 5
-  `).all(...deptFilter.params) as { id: string; name: string; uploaded_at: string; size: number }[]).map((u) => ({
-    id: u.id,
-    name: u.name,
-    uploadTime: timeAgo(u.uploaded_at),
-    size: formatSize(u.size),
-  }));
-
-  // Audit status counts
-  const auditPassed = (db.prepare(`
-    SELECT COUNT(*) as count FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE a.status = 'pass' AND c.is_audit_draft = 0${joinedDeptClause}
-  `).get(...deptFilter.params) as { count: number }).count;
-  const auditFailed = (db.prepare(`
-    SELECT COUNT(*) as count FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE a.status = 'fail' AND c.is_audit_draft = 0${joinedDeptClause}
-  `).get(...deptFilter.params) as { count: number }).count;
-  const auditPending = (db.prepare(`
-    SELECT COUNT(*) as count FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE a.status = 'pending' AND c.is_audit_draft = 0${joinedDeptClause}
-  `).get(...deptFilter.params) as { count: number }).count;
+  const riskScore = auditRows.length
+    ? Math.round(auditRows.reduce((sum, row) => sum + row.riskScore, 0) / auditRows.length)
+    : 75;
 
   res.json({
-    stats: {
-      totalContracts,
-      activeContracts,
-      expiringSoon: expiringSoon.count,
-      draftContracts,
-      riskScore,
-    },
-    expiringContracts,
-    recentUploads,
-    auditStatus: {
-      passed: auditPassed,
-      failed: auditFailed,
-      pending: auditPending,
-    },
+    stats: { totalContracts, activeContracts, expiringSoon, draftContracts, riskScore },
+    expiringContracts: toSnakeArray(expiringContracts),
+    recentUploads: recentUploads.map((u) => ({
+      id: u.id,
+      name: u.originalName,
+      uploadTime: timeAgo(u.uploadedAt),
+      size: formatSize(u.size),
+    })),
+    auditStatus: { passed: auditPassed, failed: auditFailed, pending: auditPending },
   });
 });
 
 // GET /api/dashboard/statistics — full statistics for the statistics page
-router.get('/statistics', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-
+router.get('/statistics', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const dateRange = (req.query.range as string) || 'year';
-  let days: number;
-  switch (dateRange) {
-    case 'week': days = 7; break;
-    case 'month': days = 30; break;
-    case 'quarter': days = 90; break;
-    default: days = 365; break;
-  }
+  const days = dateRange === 'week' ? 7 : dateRange === 'month' ? 30 : dateRange === 'quarter' ? 90 : 365;
+  const baseWhere = await scopedWhere(req);
+  const now = new Date();
+  const currentStart = daysAgo(days);
+  const previousStart = daysAgo(days * 2);
 
-  // Apply role-based filtering
-  let roleFilter = '';
-  const roleParams: unknown[] = [];
-  if (req.role === 'clerk' || req.role === 'head') {
-    const user = db.prepare('SELECT department FROM users WHERE id = ?').get(req.userId) as { department: string } | undefined;
-    if (user?.department) {
-      roleFilter = ' AND follow_dept = ?';
-      roleParams.push(user.department);
-    }
-  }
+  const [contracts, currentCount, previousCount, auditRows] = await Promise.all([
+    prisma.contract.findMany({ where: baseWhere, orderBy: { createdAt: 'desc' } }),
+    prisma.contract.count({ where: { ...baseWhere, createdAt: { gte: currentStart } } }),
+    prisma.contract.count({ where: { ...baseWhere, createdAt: { gte: previousStart, lt: currentStart } } }),
+    prisma.auditRecord.findMany({ where: { contract: baseWhere } }),
+  ]);
 
-  // 1. Total contract value
-  const totalValueRow = db.prepare(
-    `SELECT COALESCE(SUM(amount), 0) as total FROM contracts WHERE is_audit_draft = 0${roleFilter}`
-  ).get(...roleParams) as { total: number };
+  const totalValue = contracts.reduce((sum, c) => sum + c.amount, 0);
+  const durations = contracts
+    .map((c) => (new Date(c.endDate).getTime() - new Date(c.startDate).getTime()) / 86400000 / 30)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const avgDuration = durations.length ? Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10 : 0;
+  const monthlyGrowth = previousCount > 0 ? Math.round(((currentCount - previousCount) / previousCount) * 100) : currentCount > 0 ? 100 : 0;
 
-  // 2. Average contract duration (in months)
-  const avgDurationRow = db.prepare(`
-    SELECT COALESCE(AVG(
-      CAST(julianday(end_date) - julianday(start_date) AS REAL) / 30.0
-    ), 0) as avg FROM contracts WHERE is_audit_draft = 0 AND start_date != '' AND end_date != ''${roleFilter}
-  `).get(...roleParams) as { avg: number };
-
-  // 3. Monthly growth: compare contracts created in last N days vs previous N days
-  const currentPeriodRow = db.prepare(
-    `SELECT COUNT(*) as count FROM contracts WHERE is_audit_draft = 0 AND created_at >= datetime('now', ?)${roleFilter}`
-  ).get(`-${days} days`, ...roleParams) as { count: number };
-
-  const prevPeriodRow = db.prepare(
-    `SELECT COUNT(*) as count FROM contracts WHERE is_audit_draft = 0 AND created_at < datetime('now', ?) AND created_at >= datetime('now', ?)${roleFilter}`
-  ).get(`-${days} days`, `-${days * 2} days`, ...roleParams) as { count: number };
-
-  const monthlyGrowth = prevPeriodRow.count > 0
-    ? Math.round(((currentPeriodRow.count - prevPeriodRow.count) / prevPeriodRow.count) * 100)
-    : currentPeriodRow.count > 0 ? 100 : 0;
-
-  // 4. Total contract count
-  const totalCountRow = db.prepare(
-    `SELECT COUNT(*) as count FROM contracts WHERE is_audit_draft = 0${roleFilter}`
-  ).get(...roleParams) as { count: number };
-
-  // 5. Monthly contract counts (last 12 months)
   const monthlyData: number[] = [];
-  for (let i = 11; i >= 0; i--) {
-    const row = db.prepare(`
-      SELECT COUNT(*) as count FROM contracts
-      WHERE is_audit_draft = 0
-        AND created_at >= datetime('now', 'start of month', ?)
-        AND created_at < datetime('now', 'start of month', ?)
-      ${roleFilter}
-    `).get(`-${i} months`, `-${i - 1} months`, ...roleParams) as { count: number };
-    monthlyData.push(row.count);
-  }
-
-  // 6. Contract type distribution
-  let typeSql = `
-    SELECT type, COUNT(*) as count
-    FROM contracts
-    WHERE is_audit_draft = 0${roleFilter}
-    GROUP BY type
-    ORDER BY count DESC
-  `;
-  const typeDistribution = db.prepare(typeSql).all(...roleParams) as { type: string; count: number }[];
-
-  // 7. Top contracts by amount
-  let topSql = `
-    SELECT name, amount, party_b as party
-    FROM contracts
-    WHERE is_audit_draft = 0${roleFilter}
-    ORDER BY amount DESC
-    LIMIT 10
-  `;
-  const topContracts = db.prepare(topSql).all(...roleParams) as { name: string; amount: number; party: string }[];
-
-  // 8. Monthly amount trend (last 12 months)
   const monthlyAmount: number[] = [];
   for (let i = 11; i >= 0; i--) {
-    const row = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total
-      FROM contracts
-      WHERE is_audit_draft = 0
-        AND created_at >= datetime('now', 'start of month', ?)
-        AND created_at < datetime('now', 'start of month', ?)
-      ${roleFilter}
-    `).get(`-${i} months`, `-${i - 1} months`, ...roleParams) as { total: number };
-    monthlyAmount.push(row.total);
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const monthContracts = contracts.filter((c) => c.createdAt >= start && c.createdAt < end);
+    monthlyData.push(monthContracts.length);
+    monthlyAmount.push(monthContracts.reduce((sum, c) => sum + c.amount, 0));
   }
 
-  // 9. Status distribution
-  let statusSql = `
-    SELECT status, COUNT(*) as count
-    FROM contracts
-    WHERE is_audit_draft = 0${roleFilter}
-    GROUP BY status
-  `;
-  const statusDistribution = db.prepare(statusSql).all(...roleParams) as { status: string; count: number }[];
+  const countBy = (key: 'type' | 'status' | 'riskLevel') => {
+    const map = new Map<string, number>();
+    for (const contract of contracts) {
+      const value = contract[key] || '';
+      map.set(value, (map.get(value) || 0) + 1);
+    }
+    return [...map.entries()].map(([value, count]) => key === 'riskLevel' ? { risk_level: value, count } : { [key]: value, count });
+  };
 
-  // 10. Risk level distribution
-  let riskSql = `
-    SELECT risk_level, COUNT(*) as count
-    FROM contracts
-    WHERE is_audit_draft = 0${roleFilter}
-    GROUP BY risk_level
-  `;
-  const riskDistribution = db.prepare(riskSql).all(...roleParams) as { risk_level: string; count: number }[];
+  const deptMap = new Map<string, { follow_dept: string; count: number; total_amount: number }>();
+  for (const contract of contracts) {
+    if (!contract.followDept) continue;
+    const item = deptMap.get(contract.followDept) || { follow_dept: contract.followDept, count: 0, total_amount: 0 };
+    item.count += 1;
+    item.total_amount += contract.amount;
+    deptMap.set(contract.followDept, item);
+  }
 
-  // 11. Department contract counts
-  let deptSql = `
-    SELECT follow_dept, COUNT(*) as count, COALESCE(SUM(amount), 0) as total_amount
-    FROM contracts
-    WHERE is_audit_draft = 0 AND follow_dept != ''${roleFilter}
-    GROUP BY follow_dept
-    ORDER BY count DESC
-  `;
-  const deptStats = db.prepare(deptSql).all(...roleParams) as { follow_dept: string; count: number; total_amount: number }[];
-
-  // 12. Expiring contracts count (within date range)
-  const expiringCountRow = db.prepare(`
-    SELECT COUNT(*) as count FROM contracts
-    WHERE is_audit_draft = 0
-      AND status = 'active'
-      AND end_date BETWEEN date('now') AND date('now', ?)
-    ${roleFilter}
-  `).get(`+${days} days`, ...roleParams) as { count: number };
-
-  // 13. Audit pass rate
-  let auditSql = `
-    SELECT
-      COALESCE(SUM(CASE WHEN a.status = 'pass' THEN 1 ELSE 0 END), 0) as passed,
-      COALESCE(SUM(CASE WHEN a.status = 'fail' THEN 1 ELSE 0 END), 0) as failed,
-      COALESCE(SUM(CASE WHEN a.status = 'warning' THEN 1 ELSE 0 END), 0) as warnings,
-      COUNT(*) as total
-    FROM audit_records a
-    JOIN contracts c ON a.contract_id = c.id
-    WHERE c.is_audit_draft = 0${roleFilter}
-  `;
-  const auditStats = db.prepare(auditSql).get(...roleParams) as { passed: number; failed: number; warnings: number; total: number };
+  const expiringCount = contracts.filter((c) => c.status === 'active' && c.endDate >= now.toISOString().slice(0, 10) && c.endDate <= addDays(days)).length;
+  const auditStats = {
+    passed: auditRows.filter((a) => a.status === 'pass').length,
+    failed: auditRows.filter((a) => a.status === 'fail').length,
+    warnings: auditRows.filter((a) => a.status === 'warning').length,
+    total: auditRows.length,
+  };
 
   res.json({
-    totalValue: totalValueRow.total,
-    avgDuration: Math.round(avgDurationRow.avg * 10) / 10,
+    totalValue,
+    avgDuration,
     monthlyGrowth,
-    totalCount: totalCountRow.count,
+    totalCount: contracts.length,
     monthlyData,
     monthlyAmount,
-    typeDistribution,
-    topContracts,
-    statusDistribution,
-    riskDistribution,
-    deptStats,
-    expiringCount: expiringCountRow.count,
+    typeDistribution: countBy('type'),
+    topContracts: contracts.slice().sort((a, b) => b.amount - a.amount).slice(0, 10).map((c) => ({ name: c.name, amount: c.amount, party: c.partyB })),
+    statusDistribution: countBy('status'),
+    riskDistribution: countBy('riskLevel'),
+    deptStats: [...deptMap.values()].sort((a, b) => b.count - a.count),
+    expiringCount,
     auditStats,
   });
 });
 
-function timeAgo(dateStr: string): string {
+function timeAgo(date: Date): string {
   const now = new Date();
-  const date = new Date(dateStr + 'Z');
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
   const diffHour = Math.floor(diffMs / 3600000);

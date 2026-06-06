@@ -28,7 +28,11 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       sessionStorage.removeItem('token')
       sessionStorage.removeItem('user')
-      window.location.href = '/login'
+      const isLoginRequest = error.config?.url?.includes('/auth/login')
+      if (!isLoginRequest && window.location.pathname !== '/login') {
+        window.history.pushState({}, '', '/login')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      }
     }
     return Promise.reject(error)
   },

@@ -1,43 +1,37 @@
 import { Router, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
+import prisma from '../prisma.js';
+import { toSnakeRecord } from '../serializers.js';
 
 const router = Router();
 
 router.use(authenticateToken);
 
 // GET /api/templates — list all templates (admin + super_admin)
-router.get('/', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const templates = db.prepare(`
-    SELECT t.*, u.name as updated_by_name
-    FROM audit_templates t
-    LEFT JOIN users u ON t.updated_by = u.id
-    ORDER BY t.contract_type ASC
-  `).all();
-  res.json(templates);
+router.get('/', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const templates = await prisma.auditTemplate.findMany({
+    include: { updater: { select: { name: true } } },
+    orderBy: { contractType: 'asc' },
+  });
+  res.json(templates.map((t) => ({ ...toSnakeRecord(t), updated_by_name: t.updater?.name || null, updater: undefined })));
 });
 
 // GET /api/templates/:contractType — get single template
-router.get('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const template = db.prepare(`
-    SELECT t.*, u.name as updated_by_name
-    FROM audit_templates t
-    LEFT JOIN users u ON t.updated_by = u.id
-    WHERE t.contract_type = ?
-  `).get(req.params.contractType as string);
+router.get('/:contractType', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const template = await prisma.auditTemplate.findUnique({
+    where: { contractType: req.params.contractType as string },
+    include: { updater: { select: { name: true } } },
+  });
 
   if (!template) {
     res.status(404).json({ error: '模板不存在' });
     return;
   }
-  res.json(template);
+  res.json({ ...toSnakeRecord(template), updated_by_name: template.updater?.name || null, updater: undefined });
 });
 
 // POST /api/templates — create template
-router.post('/', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+router.post('/', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const { contractType, name, content, summaryContent } = req.body;
 
   if (!contractType || !name || !content) {
@@ -45,74 +39,54 @@ router.post('/', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Re
     return;
   }
 
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM audit_templates WHERE contract_type = ?').get(contractType);
+  const existing = await prisma.auditTemplate.findUnique({ where: { contractType } });
   if (existing) {
     res.status(409).json({ error: '该合同类型的模板已存在' });
     return;
   }
 
-  const id = uuidv4();
-  db.prepare(`
-    INSERT INTO audit_templates (id, contract_type, name, content, summary_content, version, updated_by)
-    VALUES (?, ?, ?, ?, ?, 1, ?)
-  `).run(id, contractType, name, content, summaryContent || '', req.userId);
-
-  const template = db.prepare('SELECT * FROM audit_templates WHERE id = ?').get(id);
-  res.status(201).json(template);
+  const template = await prisma.auditTemplate.create({
+    data: { contractType, name, content, summaryContent: summaryContent || '', version: 1, updatedBy: req.userId },
+  });
+  res.status(201).json(toSnakeRecord(template));
 });
 
 // PUT /api/templates/:contractType — update template (bumps version)
-router.put('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+router.put('/:contractType', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const { name, content, summaryContent } = req.body;
 
-  const db = getDb();
-  const existing = db.prepare('SELECT id, version FROM audit_templates WHERE contract_type = ?').get(req.params.contractType as string) as { id: string; version: number } | undefined;
+  const existing = await prisma.auditTemplate.findUnique({ where: { contractType: req.params.contractType as string } });
 
   if (!existing) {
     res.status(404).json({ error: '模板不存在' });
     return;
   }
 
-  const updates: string[] = [];
-  const params: unknown[] = [];
+  const template = await prisma.auditTemplate.update({
+    where: { id: existing.id },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(content !== undefined ? { content } : {}),
+      ...(summaryContent !== undefined ? { summaryContent } : {}),
+      version: existing.version + 1,
+      updatedBy: req.userId,
+    },
+    include: { updater: { select: { name: true } } },
+  });
 
-  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-  if (content !== undefined) { updates.push('content = ?'); params.push(content); }
-  if (summaryContent !== undefined) { updates.push('summary_content = ?'); params.push(summaryContent); }
-
-  if (updates.length > 0) {
-    updates.push('version = ?');
-    params.push(existing.version + 1);
-    updates.push('updated_by = ?');
-    params.push(req.userId);
-    updates.push("updated_at = datetime('now')");
-    params.push(existing.id);
-
-    db.prepare(`UPDATE audit_templates SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-  }
-
-  const template = db.prepare(`
-    SELECT t.*, u.name as updated_by_name
-    FROM audit_templates t
-    LEFT JOIN users u ON t.updated_by = u.id
-    WHERE t.id = ?
-  `).get(existing.id);
-
-  res.json(template);
+  res.json({ ...toSnakeRecord(template), updated_by_name: template.updater?.name || null, updater: undefined });
 });
 
 // DELETE /api/templates/:contractType — delete template (admin + super_admin)
-router.delete('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM audit_templates WHERE contract_type = ?').get(req.params.contractType as string);
+router.delete('/:contractType', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const existing = await prisma.auditTemplate.findUnique({ where: { contractType: req.params.contractType as string } });
 
   if (!existing) {
     res.status(404).json({ error: '模板不存在' });
     return;
   }
 
-  db.prepare('DELETE FROM audit_templates WHERE contract_type = ?').run(req.params.contractType as string);
+  await prisma.auditTemplate.delete({ where: { contractType: req.params.contractType as string } });
   res.json({ message: '模板已删除' });
 });
 

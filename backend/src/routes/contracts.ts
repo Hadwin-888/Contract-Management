@@ -1,13 +1,13 @@
 import { Router, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken, hasRole, requireRole } from '../middleware/auth.js';
 import { buildDeptFilter, requireContractAccess } from '../middleware/permissions.js';
 import { extractContractInfo } from '../services/ai.js';
 import { readFileContent } from '../services/file-reader.js';
+import prisma from '../prisma.js';
+import { parseBool, toSnakeArray, toSnakeRecord } from '../serializers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.join(__dirname, '..', '..', 'uploads');
@@ -17,117 +17,53 @@ const router = Router();
 // All routes require authentication
 router.use(authenticateToken);
 
+function buildContractWhere(req: AuthRequest, query: Record<string, unknown>) {
+  const search = (query.search as string) || '';
+  const where: any = { isAuditDraft: false };
+  if ((req.role === 'clerk' || req.role === 'head') && query.__department) {
+    where.followDept = query.__department;
+  }
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { contractNo: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  if (query.status) where.status = query.status;
+  if (query.riskLevel) where.riskLevel = query.riskLevel;
+  if (query.followDept) where.followDept = query.followDept;
+  if (query.costDept) where.costDept = query.costDept;
+  if (query.amountMin || query.amountMax) {
+    where.amount = {
+      ...(query.amountMin ? { gte: parseFloat(query.amountMin as string) } : {}),
+      ...(query.amountMax ? { lte: parseFloat(query.amountMax as string) } : {}),
+    };
+  }
+  return where;
+}
+
+async function scopedQuery(req: AuthRequest) {
+  if (req.role !== 'clerk' && req.role !== 'head') return {};
+  const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { department: true } });
+  return { __department: user?.department || '__NO_ACCESS__' };
+}
+
 // GET /api/contracts - List contracts with pagination & filters
-router.get('/', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
+router.get('/', requireRole('head', 'admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 10));
-  const search = (req.query.search as string) || '';
-  const status = req.query.status as string;
-  const riskLevel = req.query.riskLevel as string;
-  const followDept = req.query.followDept as string;
-  const costDept = req.query.costDept as string;
-  const amountMin = req.query.amountMin as string;
-  const amountMax = req.query.amountMax as string;
-
-  let whereClause = 'WHERE is_audit_draft = 0';
-  const params: unknown[] = [];
-
-  // Role-based filtering
-  const deptFilter = buildDeptFilter(req);
-  whereClause += deptFilter.clause;
-  params.push(...deptFilter.params);
-
-  if (search) {
-    whereClause += ' AND (name LIKE ? OR contract_no LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
-  }
-  if (status) {
-    whereClause += ' AND status = ?';
-    params.push(status);
-  }
-  if (riskLevel) {
-    whereClause += ' AND risk_level = ?';
-    params.push(riskLevel);
-  }
-  if (followDept) {
-    whereClause += ' AND follow_dept = ?';
-    params.push(followDept);
-  }
-  if (costDept) {
-    whereClause += ' AND cost_dept = ?';
-    params.push(costDept);
-  }
-  if (amountMin) {
-    whereClause += ' AND amount >= ?';
-    params.push(parseFloat(amountMin));
-  }
-  if (amountMax) {
-    whereClause += ' AND amount <= ?';
-    params.push(parseFloat(amountMax));
-  }
-
-  const countResult = db.prepare(`SELECT COUNT(*) as total FROM contracts ${whereClause}`).get(...params) as { total: number };
-  const total = countResult.total;
-
+  const where = buildContractWhere(req, { ...req.query, ...(await scopedQuery(req)) });
+  const total = await prisma.contract.count({ where });
   const offset = (page - 1) * pageSize;
-  const items = db.prepare(
-    `SELECT * FROM contracts ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
-  ).all(...params, pageSize, offset);
+  const items = await prisma.contract.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: pageSize });
 
-  res.json({ items, total, page, pageSize });
+  res.json({ items: toSnakeArray(items), total, page, pageSize });
 });
 
 // GET /api/contracts/export — Export filtered contracts as CSV
-router.get('/export', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const db = getDb();
-  const search = (req.query.search as string) || '';
-  const status = req.query.status as string;
-  const riskLevel = req.query.riskLevel as string;
-  const followDept = req.query.followDept as string;
-  const costDept = req.query.costDept as string;
-  const amountMin = req.query.amountMin as string;
-  const amountMax = req.query.amountMax as string;
-
-  let whereClause = 'WHERE is_audit_draft = 0';
-  const params: unknown[] = [];
-
-  const deptFilter = buildDeptFilter(req);
-  whereClause += deptFilter.clause;
-  params.push(...deptFilter.params);
-
-  if (search) {
-    whereClause += ' AND (name LIKE ? OR contract_no LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
-  }
-  if (status) {
-    whereClause += ' AND status = ?';
-    params.push(status);
-  }
-  if (riskLevel) {
-    whereClause += ' AND risk_level = ?';
-    params.push(riskLevel);
-  }
-  if (followDept) {
-    whereClause += ' AND follow_dept = ?';
-    params.push(followDept);
-  }
-  if (costDept) {
-    whereClause += ' AND cost_dept = ?';
-    params.push(costDept);
-  }
-  if (amountMin) {
-    whereClause += ' AND amount >= ?';
-    params.push(parseFloat(amountMin));
-  }
-  if (amountMax) {
-    whereClause += ' AND amount <= ?';
-    params.push(parseFloat(amountMax));
-  }
-
-  const items = db.prepare(
-    `SELECT * FROM contracts ${whereClause} ORDER BY created_at DESC`
-  ).all(...params) as Record<string, unknown>[];
+router.get('/export', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
+  const where = buildContractWhere(req, { ...req.query, ...(await scopedQuery(req)) });
+  const items = toSnakeArray(await prisma.contract.findMany({ where, orderBy: { createdAt: 'desc' } })) as Record<string, unknown>[];
 
   const statusLabels: Record<string, string> = {
     active: '进行中', expired: '已过期', draft: '草稿', terminated: '已终止',
@@ -180,20 +116,19 @@ function escapeCsvField(val: unknown): string {
 }
 
 // GET /api/contracts/:id
-router.get('/:id', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+router.get('/:id', requireRole('head', 'admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const id = req.params.id as string as string;
-  const contract = requireContractAccess(req, res, id);
+  const contract = await requireContractAccess(req, res, id);
   if (!contract) return;
 
-  const db = getDb();
-  const uploads = db.prepare('SELECT * FROM uploads WHERE contract_id = ?').all(id);
-  const audits = db.prepare('SELECT * FROM audit_records WHERE contract_id = ? ORDER BY created_at DESC').all(id);
+  const uploads = toSnakeArray(await prisma.upload.findMany({ where: { contractId: id } }));
+  const audits = toSnakeArray(await prisma.auditRecord.findMany({ where: { contractId: id }, orderBy: { createdAt: 'desc' } }));
 
   res.json({ ...contract, uploads, audits });
 });
 
 // POST /api/contracts
-router.post('/', (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   const {
     name, partyA, partyB, type, status, amount,
     amountExcludingTax, taxRate, qualityDeposit, contractNo,
@@ -213,46 +148,33 @@ router.post('/', (req: AuthRequest, res: Response) => {
     return;
   }
 
-  const db = getDb();
-  const id = uuidv4();
   let finalFollowDept = followDept || '';
 
   if (isAuditDraft && (req.role === 'clerk' || req.role === 'head')) {
-    const user = db.prepare('SELECT department FROM users WHERE id = ?').get(req.userId) as { department: string } | undefined;
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { department: true } });
     finalFollowDept = user?.department || '';
   }
 
-  db.prepare(`
-    INSERT INTO contracts (
-      id, name, party_a, party_b, type, status,
-      amount, amount_excluding_tax, tax_rate, quality_deposit, contract_no,
-      start_date, end_date, contract_term, risk_level,
-      insurance_info, insurance_date,
-      follow_dept, cost_dept, cost_code,
-      user_id, is_audit_draft
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, name, partyA, partyB, type,
-    status || 'draft',
-    amount || 0, amountExcludingTax || 0, taxRate || 0,
-    qualityDeposit || '', contractNo || '',
-    startDate, endDate, contractTerm || '', riskLevel || 'low',
-    insuranceInfo || '', insuranceDate || '',
-    finalFollowDept, costDept || '', costCode || '',
-    req.userId, isAuditDraft ? 1 : 0,
-  );
-
-  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
-  res.status(201).json(contract);
+  const contract = await prisma.contract.create({
+    data: {
+      name, partyA, partyB, type, status: status || 'draft',
+      amount: amount || 0, amountExcludingTax: amountExcludingTax || 0, taxRate: taxRate || 0,
+      qualityDeposit: qualityDeposit || '', contractNo: contractNo || '',
+      startDate, endDate, contractTerm: contractTerm || '', riskLevel: riskLevel || 'low',
+      insuranceInfo: insuranceInfo || '', insuranceDate: insuranceDate || '',
+      followDept: finalFollowDept, costDept: costDept || '', costCode: costCode || '',
+      userId: req.userId, isAuditDraft: parseBool(isAuditDraft),
+    },
+  });
+  res.status(201).json(toSnakeRecord(contract));
 });
 
 // PUT /api/contracts/:id
-router.put('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+router.put('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const id = req.params.id as string as string;
-  const contract = requireContractAccess(req, res, id);
+  const contract = await requireContractAccess(req, res, id);
   if (!contract) return;
 
-  const db = getDb();
   const {
     name, partyA, partyB, type, status, amount,
     amountExcludingTax, taxRate, qualityDeposit, contractNo,
@@ -261,35 +183,25 @@ router.put('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: 
     followDept, costDept, costCode,
   } = req.body;
 
-  db.prepare(`
-    UPDATE contracts SET
-      name=?, party_a=?, party_b=?, type=?, status=?,
-      amount=?, amount_excluding_tax=?, tax_rate=?, quality_deposit=?, contract_no=?,
-      start_date=?, end_date=?, contract_term=?, risk_level=?,
-      insurance_info=?, insurance_date=?,
-      follow_dept=?, cost_dept=?, cost_code=?
-    WHERE id=?
-  `).run(
-    name, partyA, partyB, type, status,
-    amount, amountExcludingTax, taxRate, qualityDeposit, contractNo,
-    startDate, endDate, contractTerm, riskLevel,
-    insuranceInfo, insuranceDate,
-    followDept, costDept, costCode,
-    req.params.id as string,
-  );
-
-  const updated = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id as string);
-  res.json(updated);
+  const updated = await prisma.contract.update({
+    where: { id },
+    data: {
+      name, partyA, partyB, type, status, amount,
+      amountExcludingTax, taxRate, qualityDeposit, contractNo,
+      startDate, endDate, contractTerm, riskLevel,
+      insuranceInfo, insuranceDate, followDept, costDept, costCode,
+    },
+  });
+  res.json(toSnakeRecord(updated));
 });
 
 // DELETE /api/contracts/:id
-router.delete('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
+router.delete('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   const id = req.params.id as string as string;
-  const contract = requireContractAccess(req, res, id);
+  const contract = await requireContractAccess(req, res, id);
   if (!contract) return;
 
-  const db = getDb();
-  db.prepare('DELETE FROM contracts WHERE id = ?').run(id);
+  await prisma.contract.delete({ where: { id } });
   res.json({ message: '合同已删除' });
 });
 
@@ -302,12 +214,11 @@ router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  const db = getDb();
   let targetPath = filePath;
   let contractType = '采购';
 
   if (contractId) {
-    const contract = requireContractAccess(req, res, contractId);
+    const contract = await requireContractAccess(req, res, contractId);
     if (!contract) return;
     targetPath = contract.file_path as string || targetPath;
     contractType = contract.type as string || '采购';
@@ -342,21 +253,24 @@ router.post('/ai-extract', async (req: AuthRequest, res: Response) => {
     const extracted = await extractContractInfo(fileContent, contractType);
 
     if (contractId) {
-      db.prepare(`
-        UPDATE contracts SET
-          name=?, party_a=?, party_b=?, amount=?,
-          amount_excluding_tax=?, tax_rate=?, quality_deposit=?, contract_no=?,
-          start_date=?, end_date=?, contract_term=?,
-          insurance_info=?, insurance_date=?
-        WHERE id=?
-      `).run(
-        extracted.name, extracted.partyA, extracted.partyB, extracted.amount,
-        extracted.amountExcludingTax || null, extracted.taxRate || null,
-        extracted.qualityDeposit || '', extracted.contractNo || '',
-        extracted.startDate, extracted.endDate, extracted.contractTerm || '',
-        extracted.insuranceInfo || '', extracted.insuranceDate || '',
-        contractId
-      );
+      await prisma.contract.update({
+        where: { id: contractId },
+        data: {
+          name: extracted.name,
+          partyA: extracted.partyA,
+          partyB: extracted.partyB,
+          amount: extracted.amount,
+          amountExcludingTax: extracted.amountExcludingTax || null,
+          taxRate: extracted.taxRate || null,
+          qualityDeposit: extracted.qualityDeposit || '',
+          contractNo: extracted.contractNo || '',
+          startDate: extracted.startDate,
+          endDate: extracted.endDate,
+          contractTerm: extracted.contractTerm || '',
+          insuranceInfo: extracted.insuranceInfo || '',
+          insuranceDate: extracted.insuranceDate || '',
+        },
+      });
     }
 
     res.json(extracted);

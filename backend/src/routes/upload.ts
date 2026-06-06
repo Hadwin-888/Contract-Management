@@ -4,9 +4,10 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
-import { getDb } from '../db.js';
 import { AuthRequest, authenticateToken } from '../middleware/auth.js';
-import { requireContractAccess, canAccessContract } from '../middleware/permissions.js';
+import { canAccessContract } from '../middleware/permissions.js';
+import prisma from '../prisma.js';
+import { toSnakeRecord } from '../serializers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const baseUploadDir = path.join(__dirname, '..', '..', 'uploads');
@@ -19,9 +20,8 @@ if (!fs.existsSync(baseUploadDir)) {
 /**
  * Get configured storage path for a given field type.
  */
-function getStoragePath(field: string): string {
-  const db = getDb();
-  const config = db.prepare('SELECT value FROM storage_config WHERE key = ?').get(field === 'insurance' ? 'insurancePath' : 'contractPath') as { value: string } | undefined;
+async function getStoragePath(field: string): Promise<string> {
+  const config = await prisma.storageConfig.findUnique({ where: { key: field === 'insurance' ? 'insurancePath' : 'contractPath' } });
   const relativePath = config?.value || (field === 'insurance' ? 'insurance' : 'contract');
   const safePath = relativePath.replace(/\.\./g, '').replace(/[<>:"|?*]/g, '');
   return path.join(baseUploadDir, safePath);
@@ -46,39 +46,8 @@ function generateFileName(contract: Record<string, unknown> | null, ext: string,
   return `${name}${ext}`;
 }
 
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    const field = (req.body?.field as string) || 'contract';
-    const dir = getStoragePath(field);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const field = (req.body?.field as string) || 'contract';
-    const contractId = req.body?.contractId || null;
-
-    if (contractId) {
-      const db = getDb();
-      const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | null;
-      if (contract) {
-        const namingConfig = db.prepare('SELECT value FROM storage_config WHERE key = ?').get('namingRule') as { value: string } | undefined;
-        const namingRule = namingConfig?.value || '{contractNo}{name}{partyB}';
-        const fileName = generateFileName(contract, ext, namingRule);
-        cb(null, fileName);
-        return;
-      }
-    }
-
-    cb(null, uuidv4() + ext);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowedMimes = [
@@ -112,33 +81,29 @@ const router = Router();
 router.use(authenticateToken);
 
 // POST /api/upload - Upload a file
-router.post('/', upload.single('file'), (req: AuthRequest, res: Response) => {
+router.post('/', upload.single('file'), async (req: AuthRequest, res: Response) => {
   if (!req.file) {
     res.status(400).json({ error: '请选择要上传的文件' });
     return;
   }
 
   const contractId = req.body.contractId || null;
+  let contract: Record<string, unknown> | null = null;
 
   // Validate contract access if contractId is provided
   if (contractId) {
-    const db = getDb();
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as Record<string, unknown> | undefined;
+    const found = await prisma.contract.findUnique({ where: { id: contractId } });
+    contract = found ? toSnakeRecord(found) as Record<string, unknown> : null;
     if (!contract) {
-      // Clean up uploaded file
-      fs.unlink(req.file.path, () => {});
       res.status(404).json({ error: '合同不存在' });
       return;
     }
-    if (!canAccessContract(req, contract)) {
-      fs.unlink(req.file.path, () => {});
+    if (!(await canAccessContract(req, contract))) {
       res.status(403).json({ error: '无权为该合同上传文件' });
       return;
     }
   }
 
-  const db = getDb();
-  const id = uuidv4();
   const field = req.body.field || 'contract';
 
   let originalName = req.file.originalname;
@@ -151,31 +116,43 @@ router.post('/', upload.single('file'), (req: AuthRequest, res: Response) => {
     // keep original
   }
 
-  const relativePath = path.relative(baseUploadDir, req.file.path);
+  const ext = path.extname(originalName);
+  const dir = await getStoragePath(field);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const namingConfig = await prisma.storageConfig.findUnique({ where: { key: 'namingRule' } });
+  const fileName = generateFileName(contract, ext, namingConfig?.value || '{contractNo}{name}{partyB}');
+  const fullPath = path.join(dir, fileName);
+  await fs.promises.writeFile(fullPath, req.file.buffer);
+  const relativePath = path.relative(baseUploadDir, fullPath);
 
-  db.prepare(`
-    INSERT INTO uploads (id, contract_id, filename, original_name, size, mime_type)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, contractId, relativePath, originalName, req.file.size, req.file.mimetype);
+  const uploadRecord = await prisma.upload.create({
+    data: {
+      contractId,
+      filename: relativePath,
+      originalName,
+      size: req.file.size,
+      mimeType: req.file.mimetype,
+    },
+  });
 
   if (contractId) {
     if (field === 'insurance') {
-      db.prepare('UPDATE contracts SET insurance_file_path = ? WHERE id = ?').run(relativePath, contractId);
+      await prisma.contract.update({ where: { id: contractId }, data: { insuranceFilePath: relativePath } });
     } else {
-      db.prepare('UPDATE contracts SET file_path = ? WHERE id = ?').run(relativePath, contractId);
+      await prisma.contract.update({ where: { id: contractId }, data: { filePath: relativePath } });
     }
   }
 
-  const uploadRecord = db.prepare('SELECT * FROM uploads WHERE id = ?').get(id);
-
   res.status(201).json({
-    ...uploadRecord as object,
+    ...toSnakeRecord(uploadRecord) as object,
     url: `/api/upload/file/${relativePath}`,
   });
 });
 
 // GET /api/upload/file/* — Authenticated file download (replaces public static /uploads)
-router.get('/file/*', (req: AuthRequest, res: Response) => {
+router.get('/file/*', async (req: AuthRequest, res: Response) => {
   // Extract the relative path from the wildcard
   const relativePath = req.params[0] || '';
   if (!relativePath) {
@@ -193,13 +170,13 @@ router.get('/file/*', (req: AuthRequest, res: Response) => {
   }
 
   // Check if user has access to the contract associated with this file
-  const db = getDb();
-  const upload = db.prepare('SELECT * FROM uploads WHERE filename = ?').get(safePath) as Record<string, unknown> | undefined;
+  const upload = await prisma.upload.findFirst({ where: { filename: safePath } });
 
-  if (upload?.contract_id) {
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(upload.contract_id) as Record<string, unknown> | undefined;
+  if (upload?.contractId) {
+    const found = await prisma.contract.findUnique({ where: { id: upload.contractId } });
+    const contract = found ? toSnakeRecord(found) as Record<string, unknown> : undefined;
     if (contract) {
-      if (!canAccessContract(req, contract)) {
+      if (!(await canAccessContract(req, contract))) {
         res.status(403).json({ error: '无权访问该文件' });
         return;
       }

@@ -60,9 +60,6 @@ COPY --from=build /app/prisma ./prisma
 # Generate Prisma client in production
 RUN npx prisma generate
 
-# Create data directory for SQLite compatibility
-RUN mkdir -p data
-
 EXPOSE 3001
 
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/seed.js && node dist/index.js"]
