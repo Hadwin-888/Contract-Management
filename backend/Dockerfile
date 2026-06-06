@@ -56,10 +56,9 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/src/generated ./src/generated
 
-# Generate Prisma client in production and copy to dist
-RUN npx prisma generate && mkdir -p dist/generated && cp -r src/generated/prisma dist/generated/prisma
+# Generate Prisma client in production
+RUN npx prisma generate
 
 # Create data directory for SQLite compatibility
 RUN mkdir -p data
