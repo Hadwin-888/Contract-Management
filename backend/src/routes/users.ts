@@ -82,7 +82,7 @@ router.get('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   const db = getDb();
   const user = db.prepare(
     `SELECT ${USER_FIELDS} FROM users WHERE id = ?`
-  ).get(req.params.id);
+  ).get(req.params.id as string);
 
   if (!user) {
     res.status(404).json({ error: '用户不存在' });
@@ -124,7 +124,7 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   const { name, email, department, departmentCode, role } = req.body;
 
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id as string);
   if (!existing) {
     res.status(404).json({ error: '用户不存在' });
     return;
@@ -143,11 +143,11 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   }
 
   if (updates.length > 0) {
-    params.push(req.params.id);
+    params.push(req.params.id as string);
     db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
   }
 
-  const user = db.prepare(`SELECT ${USER_FIELDS} FROM users WHERE id = ?`).get(req.params.id);
+  const user = db.prepare(`SELECT ${USER_FIELDS} FROM users WHERE id = ?`).get(req.params.id as string);
   res.json(user);
 });
 
@@ -155,18 +155,18 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
 router.delete('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
 
-  if (req.params.id === req.userId) {
+  if (req.params.id as string === req.userId) {
     res.status(400).json({ error: '不能删除自己的账号' });
     return;
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id as string);
   if (!existing) {
     res.status(404).json({ error: '用户不存在' });
     return;
   }
 
-  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id as string);
   res.json({ message: '用户已删除' });
 });
 
@@ -180,14 +180,14 @@ router.put('/:id/password', requireRole('super_admin'), (req: AuthRequest, res: 
   }
 
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id as string);
   if (!existing) {
     res.status(404).json({ error: '用户不存在' });
     return;
   }
 
   const hash = bcrypt.hashSync(newPassword, 10);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id as string);
   res.json({ message: '密码已重置' });
 });
 

@@ -26,7 +26,7 @@ router.get('/', requireRole('admin', 'super_admin'), async (req: AuthRequest, re
 router.get('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest, res: Response) => {
   try {
     const flow = await prisma.approvalFlow.findUnique({
-      where: { id: req.params.id as string },
+      where: { id: req.params.id as string as string },
       include: {
         steps: { orderBy: { stepOrder: 'asc' } },
       },
@@ -119,7 +119,7 @@ router.put('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Res
 // DELETE /api/approvals/flows/:id
 router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.approvalFlow.delete({ where: { id: req.params.id as string } });
+    await prisma.approvalFlow.delete({ where: { id: req.params.id as string as string } });
     res.json({ message: '审批流已删除' });
   } catch (error) {
     console.error('Failed to delete approval flow:', error);

@@ -181,7 +181,7 @@ function escapeCsvField(val: unknown): string {
 
 // GET /api/contracts/:id
 router.get('/:id', requireRole('head', 'admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const id = req.params.id as string;
+  const id = req.params.id as string as string;
   const contract = requireContractAccess(req, res, id);
   if (!contract) return;
 
@@ -248,7 +248,7 @@ router.post('/', (req: AuthRequest, res: Response) => {
 
 // PUT /api/contracts/:id
 router.put('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const id = req.params.id as string;
+  const id = req.params.id as string as string;
   const contract = requireContractAccess(req, res, id);
   if (!contract) return;
 
@@ -275,16 +275,16 @@ router.put('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: 
     startDate, endDate, contractTerm, riskLevel,
     insuranceInfo, insuranceDate,
     followDept, costDept, costCode,
-    req.params.id,
+    req.params.id as string,
   );
 
-  const updated = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+  const updated = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id as string);
   res.json(updated);
 });
 
 // DELETE /api/contracts/:id
 router.delete('/:id', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
-  const id = req.params.id as string;
+  const id = req.params.id as string as string;
   const contract = requireContractAccess(req, res, id);
   if (!contract) return;
 

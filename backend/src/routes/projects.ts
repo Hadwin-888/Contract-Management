@@ -90,7 +90,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const project = await prisma.project.findUnique({
-      where: { id: req.params.id as string },
+      where: { id: req.params.id as string as string },
       include: {
         _count: { select: { tasks: true, members: true } },
         members: {
@@ -117,7 +117,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
   try {
     const project = await prisma.project.update({
-      where: { id: req.params.id as string },
+      where: { id: req.params.id as string as string },
       data: {
         ...(name ? { name } : {}),
         ...(description !== undefined ? { description } : {}),
@@ -137,7 +137,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // DELETE /api/projects/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.project.delete({ where: { id: req.params.id as string } });
+    await prisma.project.delete({ where: { id: req.params.id as string as string } });
     res.json({ message: '项目已删除' });
   } catch (error) {
     console.error('Failed to delete project:', error);
@@ -149,7 +149,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 router.get('/:id/kanban', async (req: AuthRequest, res: Response) => {
   try {
     const tasks = await prisma.task.findMany({
-      where: { projectId: req.params.id as string },
+      where: { projectId: req.params.id as string as string },
       include: {
         assignee: { select: { id: true, name: true, avatar: true } },
         subtasks: { select: { id: true, status: true } },
@@ -176,7 +176,7 @@ router.get('/:id/kanban', async (req: AuthRequest, res: Response) => {
 router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
   try {
     const tasks = await prisma.task.findMany({
-      where: { projectId: req.params.id as string },
+      where: { projectId: req.params.id as string as string },
     });
 
     const total = tasks.length;
@@ -197,7 +197,7 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
 router.get('/:id/members', async (req: AuthRequest, res: Response) => {
   try {
     const members = await prisma.projectMember.findMany({
-      where: { projectId: req.params.id as string },
+      where: { projectId: req.params.id as string as string },
       include: { user: { select: { id: true, name: true, avatar: true } } },
     });
     res.json(members);
@@ -214,7 +214,7 @@ router.post('/:id/members', async (req: AuthRequest, res: Response) => {
   try {
     const member = await prisma.projectMember.create({
       data: {
-        projectId: req.params.id as string,
+        projectId: req.params.id as string as string,
         userId,
         role: role || 'member',
       },
@@ -231,7 +231,7 @@ router.post('/:id/members', async (req: AuthRequest, res: Response) => {
 router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.projectMember.deleteMany({
-      where: { projectId: req.params.id as string, userId: req.params.userId as string },
+      where: { projectId: req.params.id as string as string, userId: req.params.userId as string as string },
     });
     res.json({ message: '成员已移除' });
   } catch (error) {

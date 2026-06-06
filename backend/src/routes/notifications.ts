@@ -52,7 +52,7 @@ router.get('/unread-count', async (req: AuthRequest, res: Response) => {
 router.put('/:id/read', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.notification.updateMany({
-      where: { id: req.params.id, userId: req.userId },
+      where: { id: req.params.id as string, userId: req.userId },
       data: { isRead: true },
     });
     res.json({ message: '已标记为已读' });

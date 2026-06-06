@@ -27,7 +27,7 @@ router.get('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequ
     FROM audit_templates t
     LEFT JOIN users u ON t.updated_by = u.id
     WHERE t.contract_type = ?
-  `).get(req.params.contractType);
+  `).get(req.params.contractType as string);
 
   if (!template) {
     res.status(404).json({ error: '模板不存在' });
@@ -67,7 +67,7 @@ router.put('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequ
   const { name, content, summaryContent } = req.body;
 
   const db = getDb();
-  const existing = db.prepare('SELECT id, version FROM audit_templates WHERE contract_type = ?').get(req.params.contractType) as { id: string; version: number } | undefined;
+  const existing = db.prepare('SELECT id, version FROM audit_templates WHERE contract_type = ?').get(req.params.contractType as string) as { id: string; version: number } | undefined;
 
   if (!existing) {
     res.status(404).json({ error: '模板不存在' });
@@ -105,14 +105,14 @@ router.put('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequ
 // DELETE /api/templates/:contractType — delete template (admin + super_admin)
 router.delete('/:contractType', requireRole('admin', 'super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM audit_templates WHERE contract_type = ?').get(req.params.contractType);
+  const existing = db.prepare('SELECT id FROM audit_templates WHERE contract_type = ?').get(req.params.contractType as string);
 
   if (!existing) {
     res.status(404).json({ error: '模板不存在' });
     return;
   }
 
-  db.prepare('DELETE FROM audit_templates WHERE contract_type = ?').run(req.params.contractType);
+  db.prepare('DELETE FROM audit_templates WHERE contract_type = ?').run(req.params.contractType as string);
   res.json({ message: '模板已删除' });
 });
 

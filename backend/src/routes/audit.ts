@@ -72,7 +72,7 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
     FROM audit_records a
     LEFT JOIN contracts c ON a.contract_id = c.id
     WHERE a.id = ?
-  `).get(req.params.id) as Record<string, unknown> | undefined;
+  `).get(req.params.id as string) as Record<string, unknown> | undefined;
 
   if (!record) {
     res.status(404).json({ error: '审核记录不存在' });
@@ -104,7 +104,7 @@ router.delete('/clear', requireRole('admin', 'super_admin'), (req: AuthRequest, 
 // DELETE /api/audit/:id — delete a single audit record
 router.delete('/:id', (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined;
+  const record = db.prepare('SELECT * FROM audit_records WHERE id = ?').get(req.params.id as string) as Record<string, unknown> | undefined;
   if (!record) {
     res.status(404).json({ error: '审核记录不存在' });
     return;
@@ -120,7 +120,7 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     }
   }
 
-  db.prepare('DELETE FROM audit_records WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM audit_records WHERE id = ?').run(req.params.id as string);
   res.json({ message: '审核记录已删除' });
 });
 

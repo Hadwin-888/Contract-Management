@@ -17,7 +17,7 @@ router.get('/', (req: AuthRequest, res: Response) => {
 // GET /api/departments/:id
 router.get('/:id', (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const dept = db.prepare('SELECT * FROM departments WHERE id = ?').get(req.params.id);
+  const dept = db.prepare('SELECT * FROM departments WHERE id = ?').get(req.params.id as string);
   if (!dept) {
     res.status(404).json({ error: '部门不存在' });
     return;
@@ -56,7 +56,7 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   const { code, shortName, name, headName } = req.body;
 
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM departments WHERE id = ?').get(req.params.id);
+  const existing = db.prepare('SELECT id FROM departments WHERE id = ?').get(req.params.id as string);
   if (!existing) {
     res.status(404).json({ error: '部门不存在' });
     return;
@@ -71,23 +71,23 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   if (headName !== undefined) { updates.push('head_name = ?'); params.push(headName); }
 
   if (updates.length > 0) {
-    params.push(req.params.id);
+    params.push(req.params.id as string);
     db.prepare(`UPDATE departments SET ${updates.join(', ')} WHERE id = ?`).run(...params);
   }
 
-  const dept = db.prepare('SELECT * FROM departments WHERE id = ?').get(req.params.id);
+  const dept = db.prepare('SELECT * FROM departments WHERE id = ?').get(req.params.id as string);
   res.json(dept);
 });
 
 // DELETE /api/departments/:id — delete (super_admin only)
 router.delete('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM departments WHERE id = ?').get(req.params.id);
+  const existing = db.prepare('SELECT id FROM departments WHERE id = ?').get(req.params.id as string);
   if (!existing) {
     res.status(404).json({ error: '部门不存在' });
     return;
   }
-  db.prepare('DELETE FROM departments WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM departments WHERE id = ?').run(req.params.id as string);
   res.json({ message: '部门已删除' });
 });
 
