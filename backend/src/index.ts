@@ -17,6 +17,7 @@ import storageConfigRoutes from './routes/storage-config.js';
 import customRoleRoutes from './routes/custom-roles.js';
 import permissionRoutes from './routes/permissions.js';
 import approvalFlowRoutes from './routes/approval-flows.js';
+import notificationRoutes from './routes/notifications.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -50,6 +51,7 @@ app.use('/api/storage-config', storageConfigRoutes);
 app.use('/api/settings/roles', customRoleRoutes);
 app.use('/api/settings/permissions', permissionRoutes);
 app.use('/api/approvals/flows', approvalFlowRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

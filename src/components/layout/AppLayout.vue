@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import AppSidebar from './AppSidebar.vue'
 import LanguageSwitcher from '@/components/common/LanguageSwitcher.vue'
+import NotificationBell from '@/components/common/NotificationBell.vue'
 
 const { t } = useI18n()
 </script>
@@ -15,6 +16,7 @@ const { t } = useI18n()
           <span class="platform-name">{{ t('platform.name') }}</span>
         </div>
         <div class="header-right">
+          <NotificationBell />
           <LanguageSwitcher />
         </div>
       </header>
