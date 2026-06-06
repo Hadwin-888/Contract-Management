@@ -2,6 +2,10 @@ FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
 
+# Use Aliyun apt mirror for faster downloads
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+
 # Install build dependencies for better-sqlite3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
@@ -22,6 +26,10 @@ RUN npx tsc
 FROM node:20-bookworm-slim
 
 WORKDIR /app
+
+# Use Aliyun apt mirror
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
 
 # Install runtime dependencies for better-sqlite3 and file extraction.
 # - unzip: read DOCX/XLSX internal XML and embedded media
