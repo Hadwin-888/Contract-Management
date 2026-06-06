@@ -31,7 +31,7 @@ services:
       - PORT=3001
       - JWT_SECRET=${JWT_SECRET:-contract-mgmt-prod-secret-key}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - CORS_ORIGINS=https://contract.dianhaha.xyz
+      - CORS_ORIGINS=https://mms.dianhaha.xyz
       - DATABASE_URL=postgresql://admin:${DB_PASSWORD:-admin123}@postgres:5432/admin_platform
     volumes:
       - contract-uploads:/app/uploads
