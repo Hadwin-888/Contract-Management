@@ -82,7 +82,7 @@ router.put('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest,
 
   try {
     const order = await prisma.purchaseOrder.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         ...(status ? { status } : {}),
         ...(totalAmount !== undefined ? { totalAmount } : {}),
@@ -97,7 +97,7 @@ router.put('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest,
     // If received, update linked procurement requests
     if (status === 'received') {
       await prisma.procurementRequest.updateMany({
-        where: { purchaseOrderId: req.params.id },
+        where: { purchaseOrderId: req.params.id as string },
         data: { status: 'received' },
       });
     }

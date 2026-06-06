@@ -95,7 +95,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const task = await prisma.task.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: {
         assignee: { select: { id: true, name: true, avatar: true } },
         subtasks: {
@@ -137,14 +137,14 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   const { title, description, status, priority, assigneeId, startDate, dueDate, sortOrder } = req.body;
 
   try {
-    const oldTask = await prisma.task.findUnique({ where: { id: req.params.id } });
+    const oldTask = await prisma.task.findUnique({ where: { id: req.params.id as string } });
     if (!oldTask) {
       res.status(404).json({ error: '任务不存在' });
       return;
     }
 
     const task = await prisma.task.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         ...(title ? { title } : {}),
         ...(description !== undefined ? { description } : {}),
@@ -219,7 +219,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // DELETE /api/tasks/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.task.delete({ where: { id: req.params.id } });
+    await prisma.task.delete({ where: { id: req.params.id as string } });
     res.json({ message: '任务已删除' });
   } catch (error) {
     console.error('Failed to delete task:', error);
@@ -236,7 +236,7 @@ router.post('/:id/dependencies', async (req: AuthRequest, res: Response) => {
     const existing = await prisma.taskDependency.findUnique({
       where: {
         taskId_dependsOnTaskId: {
-          taskId: req.params.id,
+          taskId: req.params.id as string,
           dependsOnTaskId,
         },
       },
@@ -248,7 +248,7 @@ router.post('/:id/dependencies', async (req: AuthRequest, res: Response) => {
 
     const dep = await prisma.taskDependency.create({
       data: {
-        taskId: req.params.id,
+        taskId: req.params.id as string,
         dependsOnTaskId,
       },
       include: {
@@ -267,7 +267,7 @@ router.post('/:id/dependencies', async (req: AuthRequest, res: Response) => {
 router.delete('/:id/dependencies/:depId', async (req: AuthRequest, res: Response) => {
   try {
     await prisma.taskDependency.delete({
-      where: { id: req.params.depId },
+      where: { id: req.params.depId as string },
     });
     res.json({ message: '依赖已删除' });
   } catch (error) {
@@ -286,7 +286,7 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const task = await prisma.task.findUnique({ where: { id: req.params.id } });
+    const task = await prisma.task.findUnique({ where: { id: req.params.id as string } });
     if (!task) {
       res.status(404).json({ error: '任务不存在' });
       return;
@@ -294,7 +294,7 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
 
     const comment = await prisma.taskComment.create({
       data: {
-        taskId: req.params.id,
+        taskId: req.params.id as string,
         userId: req.userId!,
         content,
         mentions: JSON.stringify(mentions || []),
@@ -345,7 +345,7 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
 router.get('/:id/comments', async (req: AuthRequest, res: Response) => {
   try {
     const comments = await prisma.taskComment.findMany({
-      where: { taskId: req.params.id },
+      where: { taskId: req.params.id as string },
       include: { user: { select: { id: true, name: true, avatar: true } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -363,7 +363,7 @@ router.post('/:id/progress', async (req: AuthRequest, res: Response) => {
   try {
     const update = await prisma.progressUpdate.create({
       data: {
-        taskId: req.params.id,
+        taskId: req.params.id as string,
         userId: req.userId!,
         progress: Math.max(0, Math.min(100, progress || 0)),
         note: note || '',
@@ -373,12 +373,12 @@ router.post('/:id/progress', async (req: AuthRequest, res: Response) => {
     // Auto-update task status based on progress
     if (progress >= 100) {
       await prisma.task.update({
-        where: { id: req.params.id },
+        where: { id: req.params.id as string },
         data: { status: 'done', completedAt: new Date() },
       });
     } else if (progress > 0) {
       await prisma.task.update({
-        where: { id: req.params.id },
+        where: { id: req.params.id as string },
         data: { status: 'in_progress' },
       });
     }
@@ -394,7 +394,7 @@ router.post('/:id/progress', async (req: AuthRequest, res: Response) => {
 router.get('/:id/progress', async (req: AuthRequest, res: Response) => {
   try {
     const updates = await prisma.progressUpdate.findMany({
-      where: { taskId: req.params.id },
+      where: { taskId: req.params.id as string },
       include: { user: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
       take: 20,
@@ -410,7 +410,7 @@ router.get('/:id/progress', async (req: AuthRequest, res: Response) => {
 router.get('/:id/change-logs', async (req: AuthRequest, res: Response) => {
   try {
     const logs = await prisma.taskChangeLog.findMany({
-      where: { taskId: req.params.id },
+      where: { taskId: req.params.id as string },
       include: { user: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
       take: 50,

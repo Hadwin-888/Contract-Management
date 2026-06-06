@@ -83,7 +83,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const request = await prisma.procurementRequest.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       include: {
         requester: { select: { id: true, name: true } },
         supplier: { select: { id: true, name: true, contact: true, phone: true } },
@@ -112,7 +112,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
   try {
     const request = await prisma.procurementRequest.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         ...(title ? { title } : {}),
         ...(description !== undefined ? { description } : {}),
@@ -140,7 +140,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // DELETE /api/procurement/requests/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.procurementRequest.delete({ where: { id: req.params.id } });
+    await prisma.procurementRequest.delete({ where: { id: req.params.id as string } });
     res.json({ message: '采购申请已删除' });
   } catch (error) {
     console.error('Failed to delete procurement request:', error);
@@ -151,7 +151,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 // POST /api/procurement/requests/:id/submit — submit for approval
 router.post('/:id/submit', async (req: AuthRequest, res: Response) => {
   try {
-    const request = await prisma.procurementRequest.findUnique({ where: { id: req.params.id } });
+    const request = await prisma.procurementRequest.findUnique({ where: { id: req.params.id as string } });
     if (!request) {
       res.status(404).json({ error: '采购申请不存在' });
       return;
@@ -166,7 +166,7 @@ router.post('/:id/submit', async (req: AuthRequest, res: Response) => {
     if (!flow || flow.steps.length === 0) {
       // No approval flow configured, auto-approve
       await prisma.procurementRequest.update({
-        where: { id: req.params.id },
+        where: { id: req.params.id as string },
         data: { status: 'approved' },
       });
       res.json({ message: '无需审批，已自动通过' });
@@ -175,7 +175,7 @@ router.post('/:id/submit', async (req: AuthRequest, res: Response) => {
 
     // Update status to pending
     await prisma.procurementRequest.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { status: 'pending' },
     });
 
@@ -193,7 +193,7 @@ router.post('/:id/submit', async (req: AuthRequest, res: Response) => {
             data: {
               flowId: flow.id,
               stepId: step.id,
-              requestId: req.params.id,
+              requestId: req.params.id as string,
               requestType: 'procurement',
               approverId: userRole.userId,
               status: 'pending',
@@ -207,7 +207,7 @@ router.post('/:id/submit', async (req: AuthRequest, res: Response) => {
               type: 'approval',
               title: `有新的采购申请需要审批: ${request.title}`,
               module: 'procurement',
-              refId: req.params.id,
+              refId: req.params.id as string,
             },
           });
         }

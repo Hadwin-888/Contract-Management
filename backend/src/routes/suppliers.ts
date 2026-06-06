@@ -64,7 +64,7 @@ router.put('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest,
 
   try {
     const supplier = await prisma.supplier.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: {
         ...(name ? { name } : {}),
         ...(code !== undefined ? { code } : {}),
@@ -87,7 +87,7 @@ router.put('/:id', requireRole('admin', 'super_admin'), async (req: AuthRequest,
 // DELETE /api/procurement/suppliers/:id
 router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.supplier.delete({ where: { id: req.params.id } });
+    await prisma.supplier.delete({ where: { id: req.params.id as string } });
     res.json({ message: '供应商已删除' });
   } catch (error) {
     console.error('Failed to delete supplier:', error);
