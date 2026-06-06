@@ -126,14 +126,16 @@ const canManageUsers = computed(() => authStore.hasPermission('users'))
 const canManageAuditConfig = computed(() => authStore.hasPermission('audit-config'))
 const canManageDepartments = computed(() => authStore.hasPermission('departments'))
 const canManageStorage = computed(() => authStore.hasPermission('storage'))
+const canManageRoles = computed(() => authStore.hasPermission('roles'))
+const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-flows'))
 </script>
 
 <template>
   <PageTransition>
     <div class="settings-page">
       <div class="page-header">
-        <h1 class="page-title">系统设置</h1>
-        <p class="page-desc">管理账户和系统配置</p>
+        <h1 class="page-title">{{ $t('settings.title') }}</h1>
+        <p class="page-desc">{{ $t('settings.title') }}</p>
       </div>
 
       <!-- Sub-navigation tabs -->
@@ -158,12 +160,30 @@ const canManageStorage = computed(() => authStore.hasPermission('storage'))
         </button>
         <button
           class="tab-item"
+          :class="{ active: activeTab === '/settings/roles' }"
+          @click="switchTab('/settings/roles')"
+          v-if="canManageRoles"
+        >
+          <Users :size="18" />
+          <span>{{ $t('settings.roles') }}</span>
+        </button>
+        <button
+          class="tab-item"
+          :class="{ active: activeTab === '/settings/approval-flows' }"
+          @click="switchTab('/settings/approval-flows')"
+          v-if="canManageApprovalFlows"
+        >
+          <FileText :size="18" />
+          <span>{{ $t('settings.approvalFlows') }}</span>
+        </button>
+        <button
+          class="tab-item"
           :class="{ active: activeTab === '/settings/departments' }"
           @click="switchTab('/settings/departments')"
           v-if="canManageDepartments"
         >
           <Building2 :size="18" />
-          <span>部门设置</span>
+          <span>{{ $t('settings.departments') }}</span>
         </button>
         <button
           class="tab-item"
@@ -172,7 +192,7 @@ const canManageStorage = computed(() => authStore.hasPermission('storage'))
           v-if="canManageStorage"
         >
           <FolderOpen :size="18" />
-          <span>存储设置</span>
+          <span>{{ $t('settings.storage') }}</span>
         </button>
         <button
           class="tab-item"
@@ -180,7 +200,7 @@ const canManageStorage = computed(() => authStore.hasPermission('storage'))
           @click="switchTab('/settings')"
         >
           <Brain :size="18" />
-          <span>AI设置</span>
+          <span>{{ $t('settings.auditConfig') }}</span>
         </button>
       </div>
 

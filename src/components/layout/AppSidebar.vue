@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   LayoutDashboard,
   FileText,
@@ -9,27 +10,34 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  ClipboardList,
+  ShoppingCart,
+  CheckCircle,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
 interface MenuItem {
-  name: string
+  key: string
   path: string
   icon: any
   permission: string
 }
 
 const allMenuItems: MenuItem[] = [
-  { name: '首页', path: '/dashboard', icon: LayoutDashboard, permission: 'dashboard' },
-  { name: '合同管理', path: '/contracts', icon: FileText, permission: 'contracts' },
-  { name: 'AI审核', path: '/audit', icon: ShieldCheck, permission: 'audit' },
-  { name: '合同提醒', path: '/reminders', icon: Bell, permission: 'reminders' },
-  { name: '统计分析', path: '/statistics', icon: BarChart3, permission: 'statistics' },
-  { name: '系统设置', path: '/settings', icon: Settings, permission: 'settings' },
+  { key: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, permission: 'dashboard' },
+  { key: 'nav.projects', path: '/projects', icon: ClipboardList, permission: 'projects' },
+  { key: 'nav.contracts', path: '/contracts', icon: FileText, permission: 'contracts' },
+  { key: 'nav.audit', path: '/audit', icon: ShieldCheck, permission: 'audit' },
+  { key: 'nav.procurement', path: '/procurement', icon: ShoppingCart, permission: 'procurement' },
+  { key: 'nav.reminders', path: '/reminders', icon: Bell, permission: 'reminders' },
+  { key: 'nav.statistics', path: '/statistics', icon: BarChart3, permission: 'statistics' },
+  { key: 'nav.approvals', path: '/approvals', icon: CheckCircle, permission: 'approvals' },
+  { key: 'nav.settings', path: '/settings', icon: Settings, permission: 'settings' },
 ]
 
 const role = computed(() => authStore.role)
@@ -56,7 +64,7 @@ function handleLogout() {
       <div class="logo">
         <ShieldCheck :size="24" :stroke-width="2" />
       </div>
-      <span class="logo-text">AI合同管理</span>
+      <span class="logo-text">{{ t('platform.shortName') }}</span>
     </div>
 
     <nav class="sidebar-nav">
@@ -68,7 +76,7 @@ function handleLogout() {
         :class="{ active: isActive(item.path) }"
       >
         <component :is="item.icon" :size="20" :stroke-width="1.5" />
-        <span>{{ item.name }}</span>
+        <span>{{ t(item.key) }}</span>
       </router-link>
     </nav>
 
@@ -79,7 +87,7 @@ function handleLogout() {
       </div>
       <button class="nav-item logout-btn" @click="handleLogout">
         <LogOut :size="20" :stroke-width="1.5" />
-        <span>退出登录</span>
+        <span>{{ t('nav.logout') }}</span>
       </button>
     </div>
   </aside>

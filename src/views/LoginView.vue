@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Eye, EyeOff, LogIn, Image } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import CartoonCharacter from '@/components/login/CartoonCharacter.vue'
+import LanguageSwitcher from '@/components/common/LanguageSwitcher.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const { t } = useI18n()
 
 const username = ref('')
 const password = ref('')
@@ -84,7 +87,7 @@ async function handleLogin() {
   const cleanUsername = username.value.trim()
 
   if (!cleanUsername || !password.value) {
-    ElMessage.warning('请输入用户名和密码')
+    ElMessage.warning(t('auth.loginFail'))
     return
   }
 
@@ -92,12 +95,12 @@ async function handleLogin() {
 
   try {
     await authStore.login(cleanUsername, password.value)
-    ElMessage.success('登录成功！')
+    ElMessage.success(t('auth.loginSuccess'))
     router.push('/dashboard')
   } catch (error: any) {
     console.error('Login failed:', error)
     const message = error?.response?.data?.error
-      || (error?.request ? '无法连接后端服务，请确认 API 服务已启动' : '登录失败，请检查用户名和密码')
+      || (error?.request ? '无法连接后端服务，请确认 API 服务已启动' : t('auth.loginFail'))
     ElMessage.error(message)
   } finally {
     loading.value = false
@@ -140,6 +143,7 @@ function onPasswordBlur() {
 
     <!-- Background control button -->
     <div class="bg-controls">
+      <LanguageSwitcher />
       <el-dropdown trigger="click" placement="top-end">
         <button class="bg-btn" title="更换背景">
           <Image :size="16" />
@@ -148,11 +152,11 @@ function onPasswordBlur() {
           <div class="bg-dropdown">
             <button class="bg-dropdown-item" @click="handleBgChange">
               <span class="bg-dropdown-icon">🖼️</span>
-              <span>选择本地图片</span>
+              <span>{{ t('common.upload') }}</span>
             </button>
             <button v-if="bgType === 'image'" class="bg-dropdown-item" @click="resetBg">
               <span class="bg-dropdown-icon">🎨</span>
-              <span>恢复默认渐变</span>
+              <span>{{ t('common.reset') }}</span>
             </button>
           </div>
         </template>
@@ -168,8 +172,8 @@ function onPasswordBlur() {
 
       <!-- Login card -->
       <div class="login-card glass">
-        <h1 class="welcome-title">欢迎使用AI合同管理平台</h1>
-        <p class="welcome-subtitle">请登录您的账号</p>
+        <h1 class="welcome-title">{{ t('platform.name') }}</h1>
+        <p class="welcome-subtitle">{{ t('auth.login') }}</p>
 
         <form @submit.prevent="handleLogin" class="login-form">
           <div class="input-group">
@@ -178,7 +182,7 @@ function onPasswordBlur() {
             </div>
             <el-input
               v-model="username"
-              placeholder="用户名"
+              :placeholder="t('auth.username')"
               :prefix-icon="null"
               size="large"
               class="login-input"
@@ -196,7 +200,7 @@ function onPasswordBlur() {
             <el-input
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
-              placeholder="密码"
+              :placeholder="t('auth.password')"
               :prefix-icon="null"
               size="large"
               class="login-input"
@@ -227,7 +231,7 @@ function onPasswordBlur() {
             native-type="submit"
           >
             <LogIn :size="18" />
-            <span>登录</span>
+            <span>{{ t('auth.login') }}</span>
           </el-button>
         </form>
       </div>

@@ -35,6 +35,24 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, permission: 'dashboard' as Permission },
   },
   {
+    path: '/projects',
+    name: 'Projects',
+    component: () => import('@/views/ProjectView.vue'),
+    meta: { requiresAuth: true, permission: 'projects' as Permission },
+  },
+  {
+    path: '/projects/:id',
+    name: 'ProjectDetail',
+    component: () => import('@/views/ProjectDetailView.vue'),
+    meta: { requiresAuth: true, permission: 'projects' as Permission },
+  },
+  {
+    path: '/my-workspace',
+    name: 'MyWorkspace',
+    component: () => import('@/views/MyWorkspaceView.vue'),
+    meta: { requiresAuth: true, permission: 'projects' as Permission },
+  },
+  {
     path: '/contracts',
     name: 'Contracts',
     component: () => import('@/views/ContractsView.vue'),
@@ -45,6 +63,36 @@ const routes: RouteRecordRaw[] = [
     name: 'Audit',
     component: () => import('@/views/AuditView.vue'),
     meta: { requiresAuth: true, permission: 'audit' as Permission },
+  },
+  {
+    path: '/procurement',
+    name: 'Procurement',
+    component: () => import('@/views/ProcurementView.vue'),
+    meta: { requiresAuth: true, permission: 'procurement' as Permission },
+  },
+  {
+    path: '/procurement/suppliers',
+    name: 'Suppliers',
+    component: () => import('@/views/SupplierView.vue'),
+    meta: { requiresAuth: true, permission: 'procurement' as Permission },
+  },
+  {
+    path: '/procurement/purchase-orders',
+    name: 'PurchaseOrders',
+    component: () => import('@/views/PurchaseOrderView.vue'),
+    meta: { requiresAuth: true, permission: 'procurement' as Permission },
+  },
+  {
+    path: '/approvals',
+    name: 'Approvals',
+    component: () => import('@/views/ApprovalView.vue'),
+    meta: { requiresAuth: true, permission: 'approvals' as Permission },
+  },
+  {
+    path: '/notifications',
+    name: 'Notifications',
+    component: () => import('@/views/NotificationsView.vue'),
+    meta: { requiresAuth: true, permission: 'notifications' as Permission },
   },
   {
     path: '/reminders',
@@ -70,10 +118,22 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true, permission: 'users' as Permission },
       },
       {
+        path: 'roles',
+        name: 'RoleSettings',
+        component: () => import('@/views/settings/CustomRoleSettingsView.vue'),
+        meta: { requiresAuth: true, permission: 'roles' as Permission },
+      },
+      {
         path: 'audit-config',
         name: 'AuditConfig',
         component: () => import('@/views/settings/AuditConfigView.vue'),
         meta: { requiresAuth: true, permission: 'audit-config' as Permission },
+      },
+      {
+        path: 'approval-flows',
+        name: 'ApprovalFlowSettings',
+        component: () => import('@/views/settings/ApprovalFlowSettingsView.vue'),
+        meta: { requiresAuth: true, permission: 'approval-flows' as Permission },
       },
       {
         path: 'departments',
