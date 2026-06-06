@@ -18,6 +18,8 @@ import customRoleRoutes from './routes/custom-roles.js';
 import permissionRoutes from './routes/permissions.js';
 import approvalFlowRoutes from './routes/approval-flows.js';
 import notificationRoutes from './routes/notifications.js';
+import projectRoutes from './routes/projects.js';
+import taskRoutes from './routes/tasks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +54,8 @@ app.use('/api/settings/roles', customRoleRoutes);
 app.use('/api/settings/permissions', permissionRoutes);
 app.use('/api/approvals/flows', approvalFlowRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/tasks', taskRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
