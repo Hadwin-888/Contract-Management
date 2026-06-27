@@ -248,7 +248,7 @@ router.get('/pending', async (req: AuthRequest, res: Response) => {
           include: { owner: { select: { id: true, name: true } } },
         })
       : [];
-    const projectMap = new Map(projects.map((p) => [p.id, p as any]));
+    const projectMap = new Map<string, any>(projects.map((p) => [p.id, p]));
     const tasks = taskIds.length > 0
       ? await prisma.task.findMany({
           where: { id: { in: taskIds } },
@@ -262,14 +262,14 @@ router.get('/pending', async (req: AuthRequest, res: Response) => {
           },
         })
       : [];
-    const taskMap = new Map(tasks.map((t) => [t.id, t as any]));
+    const taskMap = new Map<string, any>(tasks.map((t) => [t.id, t]));
     const assetChanges = assetChangeIds.length > 0
       ? await prisma.assetChangeRequest.findMany({
           where: { id: { in: assetChangeIds } },
           include: { requester: { select: { id: true, name: true } } },
         })
       : [];
-    const assetChangeMap = new Map(assetChanges.map((c) => [c.id, c as any]));
+    const assetChangeMap = new Map<string, any>(assetChanges.map((c) => [c.id, c]));
 
     const result = items.map((item) => {
       const projectEntry = projectMap.get(item.requestId);

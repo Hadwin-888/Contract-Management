@@ -302,8 +302,8 @@ router.post('/import', upload.single('file'), async (req: AuthRequest, res: Resp
       return;
     }
 
-    const users = await prisma.user.findMany({ select: { id: true, name: true } }) as { id: string; name: string }[];
-    const userByName = new Map(users.map((user) => [user.name.trim(), user]));
+    const users = await prisma.user.findMany({ select: { id: true, name: true } });
+    const userByName = new Map<string, { id: string; name: string }>(users.map((user) => [user.name.trim(), user as { id: string; name: string }]));
     const rowErrors: string[] = [];
     const tasks = dataRows.map((row, index) => {
       const rowNumber = index + 2;
