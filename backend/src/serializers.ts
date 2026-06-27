@@ -22,6 +22,14 @@ const FIELD_MAP: Record<string, string> = {
   insuranceDate: 'insurance_date',
   filePath: 'file_path',
   insuranceFilePath: 'insurance_file_path',
+  sealedFilePath: 'sealed_file_path',
+  archiveStatus: 'archive_status',
+  sealedUploadedBy: 'sealed_uploaded_by',
+  sealedUploadedAt: 'sealed_uploaded_at',
+  sealedVerificationStatus: 'sealed_verification_status',
+  sealedVerificationReport: 'sealed_verification_report',
+  approvalSubmittedAt: 'approval_submitted_at',
+  approvalApprovedAt: 'approval_approved_at',
   isAuditDraft: 'is_audit_draft',
   followDept: 'follow_dept',
   costDept: 'cost_dept',
@@ -46,6 +54,10 @@ const FIELD_MAP: Record<string, string> = {
   needHumanReviewCount: 'need_human_review_count',
   auditVersion: 'audit_version',
   reviewedBy: 'reviewed_by',
+  auditRecordId: 'audit_record_id',
+  auditSnapshot: 'audit_snapshot',
+  submitNote: 'submit_note',
+  criticalIssueCount: 'critical_issue_count',
   summaryContent: 'summary_content',
   updatedBy: 'updated_by',
 };
@@ -74,4 +86,3 @@ export function toSnakeArray<T extends AnyRecord>(records: T[]): AnyRecord[] {
 export function parseBool(value: unknown): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
-

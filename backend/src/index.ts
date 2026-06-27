@@ -23,6 +23,8 @@ import taskRoutes from './routes/tasks.js';
 import procurementRequestRoutes from './routes/procurement-requests.js';
 import supplierRoutes from './routes/suppliers.js';
 import purchaseOrderRoutes from './routes/purchase-orders.js';
+import approvalActionRoutes from './routes/approvals.js';
+import assetRoutes from './routes/assets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +64,8 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/procurement/requests', procurementRequestRoutes);
 app.use('/api/procurement/suppliers', supplierRoutes);
 app.use('/api/procurement/purchase-orders', purchaseOrderRoutes);
+app.use('/api/assets', assetRoutes);
+app.use('/api/approvals', approvalActionRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

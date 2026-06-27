@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { generateToken } from '../middleware/auth.js';
 import prisma from '../prisma.js';
+import { buildUserAuthPayload } from '../services/permissions.js';
 
 const router = Router();
 
@@ -67,10 +68,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
   const role = user.role as 'clerk' | 'head' | 'admin' | 'super_admin';
   const token = generateToken(user.id, user.username, role);
+  const authUser = await buildUserAuthPayload(user.id);
 
   res.json({
     token,
-    user: { id: user.id, username: user.username, name: user.name, email: user.email, role },
+    user: authUser || { id: user.id, username: user.username, name: user.name, email: user.email, role },
   });
 });
 

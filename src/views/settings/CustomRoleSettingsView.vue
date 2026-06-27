@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Trash2, Shield } from 'lucide-vue-next'
+import { Plus, Edit, Trash2, Shield, CheckSquare } from 'lucide-vue-next'
 import { fetchRoles, createRole, updateRole, deleteRole, fetchPermissions, setRolePermissions, seedPermissions } from '@/api/roles'
 import type { CustomRole, Permission } from '@/api/roles'
 
@@ -21,16 +21,66 @@ const form = ref({
   description: '',
 })
 
-// Permission matrix
+const MODULE_META: Record<string, { label: string; desc: string; order: number }> = {
+  dashboard: { label: '工作台', desc: '首页概览、待办和风险摘要', order: 10 },
+  projects: { label: '项目管理', desc: '项目、任务和成员协作', order: 20 },
+  procurement: { label: '采购管理（旧）', desc: '旧采购申请、供应商和采购订单', order: 30 },
+  assets: { label: '资产管理', desc: '采购、收货、库存、成本、物资和供应商', order: 35 },
+  contracts: { label: '合同管理', desc: '合同台账、扫描件、导出和审批提交', order: 40 },
+  audit: { label: 'AI 审核', desc: '文件上传、AI 审核、报告下载和记录管理', order: 50 },
+  approvals: { label: '审批中心', desc: '合同/采购审批查看与处理', order: 60 },
+  notifications: { label: '通知中心', desc: '系统通知和审批提醒', order: 70 },
+  reminders: { label: '提醒管理', desc: '合同到期和履约提醒', order: 80 },
+  statistics: { label: '数据统计', desc: '统计报表和数据分析', order: 90 },
+  settings: { label: '系统设置', desc: '用户、角色、审核配置、审批流、部门和存储', order: 100 },
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  view: '查看',
+  create: '新增',
+  edit: '编辑',
+  delete: '删除',
+  export: '导出',
+  analyze: '审核',
+  download: '下载',
+  clear: '清除',
+  approve: '审批',
+  submit_approval: '提交审批',
+  manage_files: '文件管理',
+  manage_members: '成员管理',
+  manage_suppliers: '供应商管理',
+  manage_users: '用户管理',
+  manage_roles: '角色权限',
+  manage_departments: '部门管理',
+  manage_storage: '存储配置',
+  manage_audit_config: '审核配置',
+  manage_approval_flows: '审批流',
+  purchase: '采购',
+  receiving: '收货',
+  inventory: '库存',
+  cost: '成本',
+  manage_items: '物资管理',
+  reports: '报表',
+  import_export: '导入导出',
+  manage_asset_settings: '资产规则',
+}
+
 const permissionModules = computed(() => {
   const modules = new Map<string, Permission[]>()
   for (const perm of allPermissions.value) {
-    if (!modules.has(perm.module)) {
-      modules.set(perm.module, [])
-    }
+    if (!modules.has(perm.module)) modules.set(perm.module, [])
     modules.get(perm.module)!.push(perm)
   }
+
   return Array.from(modules.entries())
+    .map(([module, permissions]) => ({
+      module,
+      label: MODULE_META[module]?.label || module,
+      desc: MODULE_META[module]?.desc || '',
+      order: MODULE_META[module]?.order ?? 999,
+      permissions: permissions.sort((a, b) => actionOrder(a.action) - actionOrder(b.action)),
+    }))
+    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
 })
 
 const selectedPermIds = ref<string[]>([])
@@ -52,6 +102,7 @@ async function loadRoles() {
 
 async function loadPermissions() {
   try {
+    await seedPermissions()
     allPermissions.value = await fetchPermissions()
   } catch {
     // Permissions may not be seeded yet
@@ -62,6 +113,16 @@ async function loadPermissions() {
       console.error('Failed to load permissions')
     }
   }
+}
+
+function actionOrder(action: string) {
+  const order = ['view', 'create', 'edit', 'delete', 'export', 'analyze', 'download', 'clear', 'approve']
+  const idx = order.indexOf(action)
+  return idx >= 0 ? idx : 99
+}
+
+function actionLabel(action: string) {
+  return ACTION_LABELS[action] || action
 }
 
 function openCreateDialog() {
@@ -144,6 +205,15 @@ function isModuleAllSelected(module: string): boolean {
   return modulePerms.length > 0 && modulePerms.every((p) => selectedPermIds.value.includes(p.id))
 }
 
+function isModulePartiallySelected(module: string): boolean {
+  const modulePerms = allPermissions.value.filter((p) => p.module === module)
+  return modulePerms.some((p) => selectedPermIds.value.includes(p.id)) && !isModuleAllSelected(module)
+}
+
+function selectedCount(module: string): number {
+  return allPermissions.value.filter((p) => p.module === module && selectedPermIds.value.includes(p.id)).length
+}
+
 async function handleSavePermissions() {
   if (!selectedRoleForPerms.value) return
 
@@ -161,7 +231,10 @@ async function handleSavePermissions() {
 <template>
   <div class="role-settings">
     <div class="section-header">
-      <h3>{{ t('role.title') }}</h3>
+      <div>
+        <h3>{{ t('role.title') }}</h3>
+        <p>按平台功能模块配置角色权限，用户分配角色后自动继承对应菜单和页面权限。</p>
+      </div>
       <el-button type="primary" size="small" @click="openCreateDialog">
         <Plus :size="16" />
         {{ t('role.createRole') }}
@@ -180,7 +253,9 @@ async function handleSavePermissions() {
               <el-tag v-if="role.isSystem" size="small" type="info">{{ t('role.isSystem') }}</el-tag>
             </span>
             <span class="role-desc">{{ role.description || '-' }}</span>
-            <span class="role-count">{{ t('common.status') }}: {{ role.userCount }} {{ t('project.member') }}</span>
+            <span class="role-count">
+              {{ role.userCount }} {{ t('project.member') }} · {{ role.permissions.length }} 项权限
+            </span>
           </div>
         </div>
         <div class="role-actions">
@@ -223,28 +298,36 @@ async function handleSavePermissions() {
     <el-dialog
       v-model="permDialogVisible"
       :title="`${t('role.permissions')} - ${selectedRoleForPerms?.name || ''}`"
-      width="600px"
+      width="760px"
     >
       <div class="permission-matrix">
-        <div v-for="[module, perms] in permissionModules" :key="module" class="perm-module">
+        <div v-for="group in permissionModules" :key="group.module" class="perm-module">
           <div class="perm-module-header">
             <el-checkbox
-              :model-value="isModuleAllSelected(module)"
-              :indeterminate="perms.some(p => selectedPermIds.includes(p.id)) && !isModuleAllSelected(module)"
-              @change="(val: boolean) => toggleModulePermissions(module, val)"
+              :model-value="isModuleAllSelected(group.module)"
+              :indeterminate="isModulePartiallySelected(group.module)"
+              @change="(val: boolean) => toggleModulePermissions(group.module, val)"
             >
-              <strong>{{ module }}</strong>
+              <span class="module-title">
+                <strong>{{ group.label }}</strong>
+                <span>{{ selectedCount(group.module) }}/{{ group.permissions.length }}</span>
+              </span>
             </el-checkbox>
+            <p>{{ group.desc }}</p>
           </div>
           <div class="perm-items">
-            <el-checkbox
-              v-for="perm in perms"
+            <button
+              v-for="perm in group.permissions"
               :key="perm.id"
-              :model-value="selectedPermIds.includes(perm.id)"
-              @change="() => togglePermission(perm.id)"
+              type="button"
+              class="perm-item"
+              :class="{ selected: selectedPermIds.includes(perm.id) }"
+              @click="togglePermission(perm.id)"
             >
-              {{ perm.description }}
-            </el-checkbox>
+              <CheckSquare :size="15" />
+              <span class="perm-action">{{ actionLabel(perm.action) }}</span>
+              <span class="perm-desc">{{ perm.description }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -263,8 +346,14 @@ async function handleSavePermissions() {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  gap: 16px;
 }
 .section-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.section-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
 .role-list { display: flex; flex-direction: column; gap: 8px; }
 .role-card {
   display: flex;
@@ -274,9 +363,9 @@ async function handleSavePermissions() {
   background: var(--bg-card, #fff);
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 10px;
-  transition: all 0.2s;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.role-card:hover { border-color: var(--apple-blue, #007aff); }
+.role-card:hover { border-color: #c9d8ee; box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04); }
 .role-info { display: flex; align-items: center; gap: 12px; }
 .role-icon {
   width: 36px;
@@ -293,13 +382,97 @@ async function handleSavePermissions() {
 .role-desc { font-size: 12px; color: var(--text-secondary, #6b7280); }
 .role-count { font-size: 11px; color: var(--text-tertiary, #9ca3af); }
 .role-actions { display: flex; align-items: center; gap: 4px; }
-.permission-matrix { max-height: 500px; overflow-y: auto; }
+.permission-matrix {
+  max-height: 62vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
 .perm-module {
-  margin-bottom: 16px;
-  padding: 12px;
-  background: var(--bg-secondary, #f9fafb);
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
 }
-.perm-module-header { margin-bottom: 8px; }
-.perm-items { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 24px; }
+.perm-module-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.perm-module-header p {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+.module-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.module-title span {
+  font-size: 12px;
+  color: var(--text-tertiary, #98a2b3);
+  font-weight: 500;
+}
+.perm-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-left: 24px;
+}
+.perm-item {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-secondary, #6b7280);
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+  cursor: pointer;
+}
+.perm-item:hover {
+  border-color: #bdd3f0;
+  background: #f7fbff;
+}
+.perm-item.selected {
+  border-color: var(--apple-blue, #006edb);
+  background: #eef6ff;
+  color: var(--apple-blue, #006edb);
+}
+.perm-action {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.perm-desc {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary, #111827);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .role-card,
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .role-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .perm-items {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

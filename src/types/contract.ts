@@ -1,4 +1,13 @@
-export type ContractStatus = 'active' | 'expired' | 'draft' | 'terminated'
+export type ContractStatus =
+  | 'active'
+  | 'expired'
+  | 'draft'
+  | 'terminated'
+  | 'pending_approval'
+  | 'approved'
+  | 'pending_archive'
+  | 'archived'
+  | 'rejected'
 export type RiskLevel = 'low' | 'medium' | 'high'
 
 export interface Contract {
@@ -21,6 +30,14 @@ export interface Contract {
   insurance_date?: string
   file_path?: string
   insurance_file_path?: string
+  sealed_file_path?: string
+  archive_status?: string
+  sealed_uploaded_by?: string
+  sealed_uploaded_at?: string
+  sealed_verification_status?: string
+  sealed_verification_report?: string
+  approval_submitted_at?: string
+  approval_approved_at?: string
   follow_dept?: string
   cost_dept?: string
   cost_code?: string

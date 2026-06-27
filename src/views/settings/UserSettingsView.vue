@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   ElTable, ElTableColumn, ElButton, ElDialog, ElForm, ElFormItem,
   ElInput, ElSelect, ElOption, ElMessage, ElPopconfirm, ElTag,
@@ -7,12 +7,20 @@ import {
 import { Plus, Shield, Key, Building2 } from 'lucide-vue-next'
 import { fetchUsers, createUser, updateUser, deleteUser, resetUserPassword } from '@/api/users'
 import { fetchDepartments } from '@/api/departments'
+import { fetchRoles } from '@/api/roles'
 import type { User, Role } from '@/types/user'
 import { ROLE_LABELS } from '@/types/user'
 import type { Department } from '@/api/departments'
+import type { CustomRole } from '@/api/roles'
+
+interface DisplayRole {
+  id: string
+  name: string
+}
 
 const users = ref<User[]>([])
 const departments = ref<Department[]>([])
+const customRoles = ref<CustomRole[]>([])
 const loading = ref(false)
 
 // Create/Edit dialog
@@ -27,6 +35,8 @@ const form = ref({
   department: '',
   departmentCode: '',
   role: 'clerk' as string,
+  roleIds: [] as string[],
+  customRoleNames: [] as string[],
 })
 
 // Password reset dialog
@@ -42,10 +52,31 @@ const roleOptions = [
   { value: 'super_admin', label: '系统管理员', color: '#af52de' },
 ]
 
+// Combined role options: system roles + custom roles
+const allRoleOptions = computed(() => {
+  const systemRoles = [...roleOptions]
+  const custom = customRoles.value.map((r) => ({
+    value: r.name,
+    label: r.name,
+    color: '#8e8e93',
+    isCustom: true,
+  }))
+  return [...systemRoles, ...custom]
+})
+
 onMounted(() => {
   loadUsers()
   loadDepartments()
+  loadCustomRoles()
 })
+
+async function loadCustomRoles() {
+  try {
+    customRoles.value = await fetchRoles()
+  } catch {
+    // ignore
+  }
+}
 
 async function loadDepartments() {
   try {
@@ -69,12 +100,20 @@ async function loadUsers() {
 function openCreate() {
   editingId.value = null
   dialogTitle.value = '新增用户'
-  form.value = { username: '', password: '', name: '', email: '', department: '', departmentCode: '', role: 'clerk' }
+  form.value = { username: '', password: '', name: '', email: '', department: '', departmentCode: '', role: 'clerk', roleIds: [], customRoleNames: [] }
   dialogVisible.value = true
 }
 
-function openEdit(row: any) {
+async function openEdit(row: any) {
   editingId.value = row.id
+  // Load user's custom roles
+  let userRoleNames: string[] = []
+  try {
+    const { fetchUserRoles } = await import('@/api/roles')
+    const roles = await fetchUserRoles(row.id)
+    userRoleNames = roles.map((r: any) => r.name)
+  } catch { /* ignore */ }
+
   dialogTitle.value = '编辑用户'
   form.value = {
     username: row.username || '',
@@ -84,6 +123,8 @@ function openEdit(row: any) {
     department: row.department || '',
     departmentCode: row.department_code || '',
     role: row.role || 'clerk',
+    roleIds: [],
+    customRoleNames: userRoleNames,
   }
   dialogVisible.value = true
 }
@@ -93,6 +134,16 @@ function openResetPassword(row: any) {
   resetUserName.value = row.name
   newPassword.value = ''
   passwordDialogVisible.value = true
+}
+
+async function saveUserRoles(userId: string) {
+  try {
+    const { setUserRoles } = await import('@/api/roles')
+    const selectedCustomRoles = customRoles.value
+      .filter((r) => form.value.customRoleNames.includes(r.name))
+      .map((r) => r.id)
+    await setUserRoles(userId, selectedCustomRoles)
+  } catch { /* ignore */ }
 }
 
 async function handleSave() {
@@ -105,6 +156,7 @@ async function handleSave() {
         departmentCode: form.value.departmentCode,
         role: form.value.role,
       })
+      await saveUserRoles(editingId.value)
       ElMessage.success('用户已更新')
       dialogVisible.value = false
       loadUsers()
@@ -117,7 +169,7 @@ async function handleSave() {
       return
     }
     try {
-      await createUser({
+      const newUser = await createUser({
         username: form.value.username,
         password: form.value.password,
         name: form.value.name,
@@ -126,6 +178,7 @@ async function handleSave() {
         departmentCode: form.value.departmentCode,
         role: form.value.role,
       })
+      await saveUserRoles((newUser as any).id || newUser.id)
       ElMessage.success('用户已创建')
       dialogVisible.value = false
       loadUsers()
@@ -167,8 +220,45 @@ function onDeptChange(deptName: string) {
 }
 
 function getRoleTag(role: string) {
-  const opt = roleOptions.find((r) => r.value === role)
+  const opt = allRoleOptions.value.find((r) => r.value === role)
   return opt || { label: role, color: '#8e8e93' }
+}
+
+const roleToneOptions = [
+  { bg: '#eef6ff', border: '#bfdbfe', text: '#1d4ed8', icon: '#3b82f6' },
+  { bg: '#f0fdf4', border: '#bbf7d0', text: '#15803d', icon: '#22c55e' },
+  { bg: '#fff7ed', border: '#fed7aa', text: '#c2410c', icon: '#f97316' },
+  { bg: '#f5f3ff', border: '#ddd6fe', text: '#6d28d9', icon: '#8b5cf6' },
+  { bg: '#fdf2f8', border: '#fbcfe8', text: '#be185d', icon: '#ec4899' },
+]
+
+function roleTone(value: string) {
+  let hash = 0
+  for (const char of value) {
+    hash = (hash * 31 + char.charCodeAt(0)) % roleToneOptions.length
+  }
+  return roleToneOptions[hash]
+}
+
+function displayRoles(row: User | Record<string, any>) {
+  if (row.customRoles?.length) {
+    return row.customRoles.map((role: DisplayRole) => ({
+      value: role.id,
+      label: role.name,
+      tone: roleTone(role.name),
+      custom: true,
+    }))
+  }
+
+  const baseRole = row.role || 'clerk'
+  const tag = getRoleTag(baseRole)
+  const label = ROLE_LABELS[baseRole as Role] || tag.label
+  return [{
+    value: baseRole,
+    label,
+    tone: roleTone(label),
+    custom: false,
+  }]
 }
 </script>
 
@@ -207,17 +297,26 @@ function getRoleTag(role: string) {
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="170" />
-        <el-table-column label="角色" min-width="120">
+        <el-table-column label="角色" min-width="220">
           <template #default="{ row }">
-            <el-tag
-              :color="getRoleTag(row.role || 'clerk').color"
-              effect="dark"
-              size="small"
-              round
-            >
-              <Shield :size="12" style="margin-right:4px" />
-              {{ ROLE_LABELS[row.role as Role] || row.role }}
-            </el-tag>
+            <div class="role-tags">
+              <span
+                v-for="role in displayRoles(row)"
+                :key="role.value"
+                class="role-pill"
+                :style="{
+                  '--role-bg': role.tone.bg,
+                  '--role-border': role.tone.border,
+                  '--role-text': role.tone.text,
+                  '--role-icon': role.tone.icon,
+                }"
+              >
+                <span class="role-pill__icon">
+                  <Shield :size="12" />
+                </span>
+                <span class="role-pill__text">{{ role.label }}</span>
+              </span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="160" />
@@ -294,13 +393,13 @@ function getRoleTag(role: string) {
             <el-input v-model="form.departmentCode" placeholder="自动填充" :readonly="true" />
           </el-form-item>
         </div>
-        <el-form-item label="角色">
-          <el-select v-model="form.role" style="width:100%">
+        <el-form-item label="角色（可多选）">
+          <el-select v-model="form.customRoleNames" multiple style="width:100%" placeholder="选择角色">
             <el-option
-              v-for="opt in roleOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
+              v-for="role in customRoles"
+              :key="role.id"
+              :label="role.name"
+              :value="role.name"
             />
           </el-select>
         </el-form-item>
@@ -401,6 +500,53 @@ function getRoleTag(role: string) {
 .empty-cell {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.role-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.role-pill {
+  --role-bg: #eef6ff;
+  --role-border: #bfdbfe;
+  --role-text: #1d4ed8;
+  --role-icon: #3b82f6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 10px 4px 7px;
+  border: 1px solid var(--role-border);
+  border-radius: 999px;
+  background: var(--role-bg);
+  color: var(--role-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.role-pill__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--role-icon);
+  color: #fff;
+}
+
+.role-pill__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .form-row {

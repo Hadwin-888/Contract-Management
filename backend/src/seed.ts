@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import prisma from './prisma.js';
+import { seedPermissionCatalog } from './services/permissions.js';
 
 const HOTEL_REVIEW_FORMAT = `
 ---
@@ -115,6 +116,8 @@ export async function seedDatabase() {
       },
     });
   }
+
+  await seedPermissionCatalog();
 }
 
 seedDatabase()
@@ -125,4 +128,3 @@ seedDatabase()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

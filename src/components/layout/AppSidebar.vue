@@ -41,12 +41,27 @@ interface GroupMenuItem {
 }
 
 const contractMenuOpen = ref(false)
+const assetMenuOpen = ref(false)
 
 const topMenuItems: MenuItem[] = [
   { key: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, permission: 'dashboard' },
   { key: 'nav.projects', path: '/projects', icon: ClipboardList, permission: 'projects' },
-  { key: 'nav.procurement', path: '/procurement', icon: ShoppingCart, permission: 'procurement' },
 ]
+
+const assetGroup: GroupMenuItem = {
+  key: 'nav.procurement',
+  icon: ShoppingCart,
+  permission: 'assets',
+  children: [
+    { key: 'nav.assetPurchase', path: '/assets/purchase', permission: 'asset-purchase' },
+    { key: 'nav.assetReceiving', path: '/assets/receiving', permission: 'asset-receiving' },
+    { key: 'nav.assetInventory', path: '/assets/inventory', permission: 'asset-inventory' },
+    { key: 'nav.assetCost', path: '/assets/cost', permission: 'asset-cost' },
+    { key: 'nav.assetSuppliers', path: '/assets/suppliers', permission: 'asset-suppliers' },
+    { key: 'nav.assetItems', path: '/assets/items', permission: 'asset-items' },
+    { key: 'nav.assetReports', path: '/assets/reports', permission: 'asset-reports' },
+  ],
+}
 
 // 合同管理分组（含 AI审核 子项）
 const contractGroup: GroupMenuItem = {
@@ -82,6 +97,16 @@ const visibleContractGroup = computed(() => {
   return contractGroup
 })
 
+const visibleAssetGroup = computed(() => {
+  const r = role.value
+  if (!r) return null
+  if (!authStore.hasPermission(assetGroup.permission as any) &&
+      !assetGroup.children.some((c) => authStore.hasPermission(c.permission as any))) {
+    return null
+  }
+  return assetGroup
+})
+
 const visibleBottomItems = computed(() => {
   const r = role.value
   if (!r) return []
@@ -96,13 +121,24 @@ const isContractGroupActive = computed(() => {
   return contractGroup.children.some((c) => isActive(c.path))
 })
 
+const isAssetGroupActive = computed(() => {
+  return assetGroup.children.some((c) => isActive(c.path)) || route.path.startsWith('/procurement')
+})
+
 // Auto-open contract group if a child is active
 if (isContractGroupActive.value) {
   contractMenuOpen.value = true
 }
+if (isAssetGroupActive.value) {
+  assetMenuOpen.value = true
+}
 
 function toggleContractMenu() {
   contractMenuOpen.value = !contractMenuOpen.value
+}
+
+function toggleAssetMenu() {
+  assetMenuOpen.value = !assetMenuOpen.value
 }
 
 function handleLogout() {
@@ -132,6 +168,31 @@ function handleLogout() {
         <component :is="item.icon" :size="20" :stroke-width="1.5" />
         <span>{{ t(item.key) }}</span>
       </router-link>
+
+      <div v-if="visibleAssetGroup" class="nav-group">
+        <button
+          class="nav-item group-toggle"
+          :class="{ active: isAssetGroupActive }"
+          @click="toggleAssetMenu"
+        >
+          <component :is="visibleAssetGroup.icon" :size="20" :stroke-width="1.5" />
+          <span>{{ t(visibleAssetGroup.key) }}</span>
+          <ChevronDown :size="16" class="group-arrow" :class="{ open: assetMenuOpen }" />
+        </button>
+        <Transition name="slide">
+          <div v-if="assetMenuOpen" class="sub-menu">
+            <router-link
+              v-for="child in visibleAssetGroup.children"
+              :key="child.path"
+              :to="child.path"
+              class="nav-item sub-item"
+              :class="{ active: isActive(child.path) }"
+            >
+              <span>{{ t(child.key) }}</span>
+            </router-link>
+          </div>
+        </Transition>
+      </div>
 
       <!-- Contract group (collapsible) -->
       <div v-if="visibleContractGroup" class="nav-group">
@@ -189,10 +250,8 @@ function handleLogout() {
 .sidebar {
   width: 240px;
   min-height: 100vh;
-  background: var(--card-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid var(--border-light);
+  background: #fbfcfe;
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   padding: 20px 12px;
@@ -212,7 +271,7 @@ function handleLogout() {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: var(--apple-blue);
+  background: #005eb8;
   color: white;
   display: flex;
   align-items: center;
@@ -237,7 +296,7 @@ function handleLogout() {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: var(--radius-button);
+  border-radius: 8px;
   color: var(--text-secondary);
   text-decoration: none;
   font-size: 14px;
@@ -251,12 +310,12 @@ function handleLogout() {
 }
 
 .nav-item:hover {
-  background: rgba(0, 122, 255, 0.08);
+  background: rgba(0, 110, 219, 0.07);
   color: var(--apple-blue);
 }
 
 .nav-item.active {
-  background: rgba(0, 122, 255, 0.1);
+  background: #e8f2ff;
   color: var(--apple-blue);
   font-weight: 600;
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { ElButton, ElInput, ElSelect, ElOption, ElMessage } from 'element-plus'
-import { Brain, Key, Save, Users, FileText, Shield, CheckCircle2, Eye, EyeOff, Building2, FolderOpen } from 'lucide-vue-next'
+import { Brain, Key, Save, Users, FileText, Shield, CheckCircle2, Eye, EyeOff, Building2, FolderOpen, SlidersHorizontal } from 'lucide-vue-next'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import PageTransition from '@/components/common/PageTransition.vue'
@@ -128,6 +128,7 @@ const canManageDepartments = computed(() => authStore.hasPermission('departments
 const canManageStorage = computed(() => authStore.hasPermission('storage'))
 const canManageRoles = computed(() => authStore.hasPermission('roles'))
 const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-flows'))
+const canManageAssetSettings = computed(() => authStore.hasPermission('asset-settings'))
 </script>
 
 <template>
@@ -135,7 +136,7 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
     <div class="settings-page">
       <div class="page-header">
         <h1 class="page-title">{{ $t('settings.title') }}</h1>
-        <p class="page-desc">{{ $t('settings.title') }}</p>
+        <p class="page-desc">配置用户、审批流程、审核规则与 AI 服务</p>
       </div>
 
       <!-- Sub-navigation tabs -->
@@ -193,6 +194,15 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
         >
           <FolderOpen :size="18" />
           <span>{{ $t('settings.storage') }}</span>
+        </button>
+        <button
+          class="tab-item"
+          :class="{ active: activeTab === '/settings/asset-settings' }"
+          @click="switchTab('/settings/asset-settings')"
+          v-if="canManageAssetSettings"
+        >
+          <SlidersHorizontal :size="18" />
+          <span>{{ $t('settings.assetSettings') }}</span>
         </button>
         <button
           class="tab-item"
@@ -404,11 +414,11 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
 }
 
 .page-title {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0 0 4px;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
 }
 
 .page-desc {
@@ -423,6 +433,7 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
   display: flex;
   gap: 4px;
   margin-bottom: 20px;
+  overflow-x: auto;
 }
 
 .tab-item {
@@ -437,7 +448,8 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s ease, color 0.2s ease;
+  white-space: nowrap;
 }
 
 .tab-item:hover {
@@ -459,7 +471,7 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
 }
 
 .settings-section {
-  padding: 24px;
+  padding: 20px;
 }
 
 .section-header {
@@ -629,7 +641,7 @@ const canManageApprovalFlows = computed(() => authStore.hasPermission('approval-
 
 @media (max-width: 768px) {
   .settings-tabs {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 }
 </style>

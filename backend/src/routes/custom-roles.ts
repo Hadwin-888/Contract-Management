@@ -33,6 +33,7 @@ router.get('/', requireRole('super_admin'), async (req: AuthRequest, res: Respon
         id: rp.permission.id,
         module: rp.permission.module,
         action: rp.permission.action,
+        description: rp.permission.description,
       })),
       createdAt: role.createdAt,
     }));

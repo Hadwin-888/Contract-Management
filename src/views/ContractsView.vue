@@ -7,7 +7,7 @@ import {
 } from 'element-plus'
 import {
   Plus, Search, Upload, Edit, Delete, Download, Eye, FileText,
-  FileSpreadsheet, Filter, Sparkles,
+  FileSpreadsheet, Filter, Sparkles, MoreHorizontal,
 } from 'lucide-vue-next'
 import { useContractsStore } from '@/stores/contracts'
 import { createContract, updateContract, deleteContract, fetchContract, aiExtractContract } from '@/api/contracts'
@@ -65,6 +65,7 @@ const departments = ref<Department[]>([])
 // Upload states
 const uploadContractLoading = ref<Record<string, boolean>>({})
 const uploadInsuranceLoading = ref<Record<string, boolean>>({})
+const uploadSealedLoading = ref<Record<string, boolean>>({})
 
 // AI extract state
 const aiExtractLoading = ref(false)
@@ -111,6 +112,10 @@ function getRiskLabel(level: string): string {
 function formatAmount(amount: number) {
   if (amount >= 10000) return '¥' + (amount / 10000).toFixed(2) + '万'
   return '¥' + amount.toLocaleString()
+}
+
+function formatFullAmount(amount: number) {
+  return '¥' + Number(amount || 0).toLocaleString()
 }
 
 function resetForm() {
@@ -329,6 +334,27 @@ async function handleUploadInsurance(row: any) {
   input.click()
 }
 
+async function handleUploadSealed(row: any) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff'
+  input.onchange = async (e: any) => {
+    const file = e.target?.files?.[0]
+    if (!file) return
+    uploadSealedLoading.value[row.id] = true
+    try {
+      await uploadFile(file, row.id, 'sealed')
+      ElMessage.success('双方盖章合同已上传，合同已自动归档')
+      store.fetchContracts()
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '上传失败')
+    } finally {
+      uploadSealedLoading.value[row.id] = false
+    }
+  }
+  input.click()
+}
+
 function openContractFile(row: any) {
   if (!row.file_path) {
     ElMessage.info('暂无合同扫描件')
@@ -343,6 +369,14 @@ function openInsuranceFile(row: any) {
     return
   }
   window.open(`/uploads/${row.insurance_file_path}`, '_blank')
+}
+
+function openSealedFile(row: any) {
+  if (!row.sealed_file_path) {
+    ElMessage.info('暂无盖章归档合同')
+    return
+  }
+  window.open(`/api/upload/file/${row.sealed_file_path}`, '_blank')
 }
 
 async function deleteContractFile(row: any) {
@@ -459,6 +493,10 @@ async function handleExport() {
         >
           <el-option label="进行中" value="active" />
           <el-option label="草稿" value="draft" />
+          <el-option label="审批中" value="pending_approval" />
+          <el-option label="待归档" value="pending_archive" />
+          <el-option label="已归档" value="archived" />
+          <el-option label="已驳回" value="rejected" />
           <el-option label="已过期" value="expired" />
           <el-option label="已终止" value="terminated" />
         </el-select>
@@ -540,41 +578,59 @@ async function handleExport() {
           style="width: 100%"
           :header-cell-style="{ background: 'transparent' }"
         >
-          <el-table-column prop="contract_no" label="合同编号" width="130" show-overflow-tooltip />
-          <el-table-column prop="name" label="合同名称" min-width="160" show-overflow-tooltip>
+          <el-table-column prop="contract_no" label="合同编号" width="132" fixed="left" show-overflow-tooltip />
+          <el-table-column prop="name" label="合同名称" min-width="220" fixed="left" show-overflow-tooltip>
             <template #default="{ row }">
-              <span class="contract-name-cell">{{ row.name }}</span>
+              <div class="contract-title-cell">
+                <span class="contract-name-cell">{{ row.name }}</span>
+                <span class="contract-party-cell">{{ row.party_b || '-' }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="party_a" label="甲方" width="110" show-overflow-tooltip />
-          <el-table-column prop="party_b" label="乙方" width="110" show-overflow-tooltip />
-          <el-table-column label="金额" width="110" show-overflow-tooltip>
+          <el-table-column prop="party_a" label="甲方" width="140" show-overflow-tooltip />
+          <el-table-column label="财务信息" min-width="190" show-overflow-tooltip>
             <template #default="{ row }">
-              <span class="amount-cell" :title="'¥' + row.amount.toLocaleString()">{{ formatAmount(row.amount) }}</span>
+              <div class="finance-cell">
+                <span class="amount-cell" :title="formatFullAmount(row.amount)">{{ formatAmount(row.amount) }}</span>
+                <span class="finance-meta">
+                  不含税 {{ formatAmount(row.amount_excluding_tax || 0) }} · 税率 {{ row.tax_rate ? row.tax_rate + '%' : '-' }}
+                </span>
+                <span v-if="row.quality_deposit" class="finance-meta">质保金 {{ row.quality_deposit }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column label="不含税金额" width="110" show-overflow-tooltip>
+          <el-table-column label="合同期限" min-width="170" show-overflow-tooltip>
             <template #default="{ row }">
-              <span class="amount-cell">{{ formatAmount(row.amount_excluding_tax || 0) }}</span>
+              <div class="date-cell">
+                <span>{{ row.start_date || '-' }} 至 {{ row.end_date || '-' }}</span>
+                <span v-if="row.contract_term" class="date-meta">{{ row.contract_term }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column label="税率" width="70" show-overflow-tooltip>
+          <el-table-column label="保险" min-width="150" show-overflow-tooltip>
             <template #default="{ row }">
-              <span>{{ row.tax_rate ? row.tax_rate + '%' : '-' }}</span>
+              <div class="date-cell">
+                <span>{{ row.insurance_info || '-' }}</span>
+                <span v-if="row.insurance_date" class="date-meta">{{ row.insurance_date }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="quality_deposit" label="质保金" width="100" show-overflow-tooltip />
-          <el-table-column prop="start_date" label="起始日期" width="100" show-overflow-tooltip />
-          <el-table-column prop="end_date" label="结束日期" width="100" show-overflow-tooltip />
-          <el-table-column prop="contract_term" label="合同期限" width="100" show-overflow-tooltip />
-          <el-table-column prop="insurance_info" label="保险情况" width="120" show-overflow-tooltip />
-          <el-table-column prop="insurance_date" label="保险日期" width="100" show-overflow-tooltip />
-          <el-table-column prop="follow_dept" label="跟进部门" width="100" show-overflow-tooltip />
-          <el-table-column prop="cost_dept" label="费用部门" width="100" show-overflow-tooltip />
-          <el-table-column prop="cost_code" label="费用代码" width="100" show-overflow-tooltip />
+          <el-table-column label="部门/费用" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="date-cell">
+                <span>{{ row.follow_dept || '-' }}</span>
+                <span class="date-meta">{{ row.cost_dept || '-' }} / {{ row.cost_code || '-' }}</span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="90" show-overflow-tooltip>
             <template #default="{ row }">
-              <StatusBadge :status="row.status" />
+              <div class="status-stack">
+                <StatusBadge :status="row.status" />
+                <span v-if="row.sealed_verification_status" class="archive-note">
+                  {{ row.sealed_verification_status === 'pending_manual_review' ? '盖章件待人工核对' : row.sealed_verification_status }}
+                </span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="风险" width="80" show-overflow-tooltip>
@@ -585,7 +641,7 @@ async function handleExport() {
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="360" fixed="right" class-name="action-column">
+          <el-table-column label="操作" width="180" fixed="right" class-name="action-column">
             <template #default="{ row }">
               <div class="action-icons">
                 <el-button text size="small" type="primary" @click="openEdit(row)">
@@ -598,42 +654,43 @@ async function handleExport() {
                     </el-button>
                   </template>
                 </el-popconfirm>
-                <span class="action-sep">|</span>
-                <el-tooltip content="上传合同扫描件" placement="top">
-                  <el-button text size="small" class="icon-btn" @click="handleUploadContract(row)" :loading="uploadContractLoading[row.id]">
-                    <Upload :size="14" />
+                <el-dropdown trigger="click" placement="bottom-end">
+                  <el-button text size="small" class="icon-btn">
+                    <MoreHorizontal :size="16" />
                   </el-button>
-                </el-tooltip>
-                <el-tooltip v-if="row.file_path" content="打开合同扫描件" placement="top">
-                  <el-button text size="small" class="icon-btn" type="primary" @click="openContractFile(row)">
-                    <Eye :size="14" />
-                  </el-button>
-                </el-tooltip>
-                <el-popconfirm v-if="row.file_path" title="删除合同扫描件？" @confirm="deleteContractFile(row)">
-                  <template #reference>
-                    <el-button text size="small" class="icon-btn" type="danger">
-                      <Delete :size="14" />
-                    </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item @click="handleUploadContract(row)">
+                        上传合同扫描件
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.file_path" @click="openContractFile(row)">
+                        打开合同扫描件
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.file_path" @click="deleteContractFile(row)">
+                        删除合同扫描件
+                      </el-dropdown-item>
+                      <el-dropdown-item divided @click="handleUploadInsurance(row)">
+                        上传保单扫描件
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.insurance_file_path" @click="openInsuranceFile(row)">
+                        打开保单扫描件
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.insurance_file_path" @click="deleteInsuranceFile(row)">
+                        删除保单扫描件
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        divided
+                        v-if="['approved', 'pending_archive', 'archived'].includes(row.status)"
+                        @click="handleUploadSealed(row)"
+                      >
+                        {{ row.sealed_file_path ? '替换盖章归档合同' : '上传盖章归档合同' }}
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.sealed_file_path" @click="openSealedFile(row)">
+                        打开盖章归档合同
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
                   </template>
-                </el-popconfirm>
-                <span class="action-sep">|</span>
-                <el-tooltip content="上传保单扫描件" placement="top">
-                  <el-button text size="small" class="icon-btn" type="warning" @click="handleUploadInsurance(row)" :loading="uploadInsuranceLoading[row.id]">
-                    <Upload :size="14" />
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip v-if="row.insurance_file_path" content="打开保单扫描件" placement="top">
-                  <el-button text size="small" class="icon-btn" type="warning" @click="openInsuranceFile(row)">
-                    <Eye :size="14" />
-                  </el-button>
-                </el-tooltip>
-                <el-popconfirm v-if="row.insurance_file_path" title="删除保单扫描件？" @confirm="deleteInsuranceFile(row)">
-                  <template #reference>
-                    <el-button text size="small" class="icon-btn" type="danger">
-                      <Delete :size="14" />
-                    </el-button>
-                  </template>
-                </el-popconfirm>
+                </el-dropdown>
               </div>
             </template>
           </el-table-column>
@@ -854,6 +911,20 @@ async function handleExport() {
   gap: 6px;
 }
 
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.archive-note {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  white-space: normal;
+}
+
 /* Filters */
 .filters {
   padding: 16px;
@@ -916,6 +987,25 @@ async function handleExport() {
   color: var(--text-primary);
 }
 
+.contract-title-cell,
+.finance-cell,
+.date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.contract-party-cell,
+.finance-meta,
+.date-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .amount-cell {
   font-weight: 600;
   color: var(--text-primary);
@@ -949,7 +1039,7 @@ async function handleExport() {
 .action-icons {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 4px;
   white-space: nowrap;
 }
 
@@ -964,7 +1054,7 @@ async function handleExport() {
 }
 
 .action-icons .icon-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 110, 219, 0.08);
 }
 
 .action-sep {

@@ -5,10 +5,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Trash2, ArrowRight } from 'lucide-vue-next'
 import { fetchApprovalFlows, createApprovalFlow, updateApprovalFlow, deleteApprovalFlow } from '@/api/approvals'
 import type { ApprovalFlow, ApprovalFlowStep } from '@/api/approvals'
+import { fetchRoles } from '@/api/roles'
+import type { CustomRole } from '@/api/roles'
 
 const { t } = useI18n()
 
 const flows = ref<ApprovalFlow[]>([])
+const roles = ref<CustomRole[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const editingFlow = ref<ApprovalFlow | null>(null)
@@ -23,12 +26,33 @@ const form = ref({
 const moduleOptions = [
   { value: 'procurement', label: '采购' },
   { value: 'contract', label: '合同' },
-  { value: 'project', label: '项目' },
+  { value: 'project_completion', label: '项目完成' },
+  { value: 'task_completion', label: '任务完成' },
+  { value: 'asset_item', label: '物资品项' },
+  { value: 'asset_supplier', label: '供应商资料' },
+  { value: 'asset_purchase_request', label: '资产采购申请' },
+  { value: 'asset_receiving', label: '收货入库' },
   { value: 'other', label: '其他' },
 ]
 
+const flowNameOptions = [
+  { name: '采购申请审批流程', module: 'procurement', description: '用于采购申请提交后的审批。' },
+  { name: '合同审批流程', module: 'contract', description: '用于合同 AI 审核后提交审批。' },
+  { name: '项目完成审批流程', module: 'project_completion', description: '用于项目完成材料上传后的完成审批。' },
+  { name: '任务完成审批流程', module: 'task_completion', description: '用于任务负责人上传完成支持文件后的完成审批。' },
+  { name: '物资品项新增/变更审批流程', module: 'asset_item', description: '用于物资品项主数据新增或变更审批。' },
+  { name: '供应商资料新增/变更审批流程', module: 'asset_supplier', description: '用于供应商资料新增或变更审批。' },
+  { name: '资产采购申请审批流程', module: 'asset_purchase_request', description: '用于资产采购申请提交后的审批。' },
+  { name: '收货入库审批流程', module: 'asset_receiving', description: '用于收货数据确认后入库审批。' },
+]
+
+function moduleLabel(value: string) {
+  return moduleOptions.find((item) => item.value === value)?.label || value
+}
+
 onMounted(() => {
   loadFlows()
+  loadRoles()
 })
 
 async function loadFlows() {
@@ -42,15 +66,31 @@ async function loadFlows() {
   }
 }
 
+async function loadRoles() {
+  try {
+    roles.value = await fetchRoles()
+  } catch (error) {
+    console.error('Failed to load roles:', error)
+    roles.value = []
+  }
+}
+
 function openCreateDialog() {
   editingFlow.value = null
   form.value = {
-    name: '',
+    name: flowNameOptions[0].name,
     module: 'procurement',
-    description: '',
+    description: flowNameOptions[0].description,
     steps: [{ roleName: '', actionType: 'approve', required: true }],
   }
   dialogVisible.value = true
+}
+
+function handleFlowNameChange(name: string) {
+  const preset = flowNameOptions.find((item) => item.name === name)
+  if (!preset) return
+  form.value.module = preset.module
+  form.value.description = preset.description
 }
 
 function openEditDialog(flow: ApprovalFlow) {
@@ -78,7 +118,7 @@ function removeStep(index: number) {
 
 async function handleSave() {
   if (!form.value.name.trim()) {
-    ElMessage.warning('请输入审批流名称')
+    ElMessage.warning('请选择审批流名称')
     return
   }
 
@@ -150,7 +190,7 @@ async function handleDelete(flow: ApprovalFlow) {
             <el-tag size="small" :type="flow.isActive ? 'success' : 'info'">
               {{ flow.isActive ? '启用' : '停用' }}
             </el-tag>
-            <el-tag size="small">{{ flow.module }}</el-tag>
+            <el-tag size="small">{{ moduleLabel(flow.module) }}</el-tag>
           </div>
           <div class="flow-actions">
             <el-button text size="small" @click="openEditDialog(flow)">
@@ -182,10 +222,12 @@ async function handleDelete(flow: ApprovalFlow) {
     >
       <el-form :model="form" label-position="top">
         <el-form-item :label="t('approval.flowName')" required>
-          <el-input v-model="form.name" :placeholder="t('approval.flowName')" />
+          <el-select v-model="form.name" filterable :disabled="!!editingFlow" placeholder="请选择审批流名称" @change="handleFlowNameChange">
+            <el-option v-for="preset in flowNameOptions" :key="preset.name" :label="preset.name" :value="preset.name" />
+          </el-select>
         </el-form-item>
         <el-form-item :label="t('approval.module')">
-          <el-select v-model="form.module">
+          <el-select v-model="form.module" disabled>
             <el-option v-for="opt in moduleOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
@@ -202,7 +244,9 @@ async function handleDelete(flow: ApprovalFlow) {
           </div>
           <div v-for="(step, idx) in form.steps" :key="idx" class="step-form-item">
             <span class="step-num">{{ idx + 1 }}</span>
-            <el-input v-model="step.roleName" :placeholder="t('approval.roleName')" size="small" style="flex:1" />
+            <el-select v-model="step.roleName" filterable :placeholder="t('approval.roleName')" size="small" style="flex:1">
+              <el-option v-for="role in roles" :key="role.id" :label="role.name" :value="role.name" />
+            </el-select>
             <el-select v-model="step.actionType" size="small" style="width:100px">
               <el-option label="审批" value="approve" />
               <el-option label="会签" value="review" />

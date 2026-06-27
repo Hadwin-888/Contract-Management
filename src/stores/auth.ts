@@ -16,8 +16,16 @@ export const useAuthStore = defineStore('auth', () => {
   const role = computed<Role | undefined>(() => user.value?.role)
 
   const permissions = computed<Permission[]>(() => {
-    if (!role.value) return []
-    return ROLE_PERMISSIONS[role.value] || []
+    const merged = new Set<Permission>()
+    if (role.value) {
+      for (const permission of ROLE_PERMISSIONS[role.value] || []) {
+        merged.add(permission)
+      }
+    }
+    for (const permission of user.value?.permissions || []) {
+      merged.add(permission)
+    }
+    return Array.from(merged)
   })
 
   function hasPermission(perm: Permission): boolean {

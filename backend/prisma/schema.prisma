@@ -28,8 +28,13 @@ model User {
   taskComments        TaskComment[]
   taskChangeLogs      TaskChangeLog[]
   projectMembers      ProjectMember[]
+  ownedProjects       Project[] @relation("ProjectOwner")
+  projectFiles        ProjectFile[]
+  taskFiles           TaskFile[]
   progressUpdates     ProgressUpdate[]
   procurementRequests ProcurementRequest[]
+  assetChangeRequests AssetChangeRequest[]
+  assetPurchaseRequests AssetPurchaseRequest[]
   approvalRecords     ApprovalRecord[]
   userRoles           UserRole[]
   tasks               Task[]
@@ -68,6 +73,14 @@ model Contract {
   insuranceDate      String?  @map("insurance_date")
   filePath           String?  @map("file_path")
   insuranceFilePath  String?  @map("insurance_file_path")
+  sealedFilePath     String?  @map("sealed_file_path")
+  archiveStatus      String   @default("not_started") @map("archive_status")
+  sealedUploadedBy   String?  @map("sealed_uploaded_by")
+  sealedUploadedAt   DateTime? @map("sealed_uploaded_at")
+  sealedVerificationStatus String? @map("sealed_verification_status")
+  sealedVerificationReport String? @map("sealed_verification_report")
+  approvalSubmittedAt DateTime? @map("approval_submitted_at")
+  approvalApprovedAt DateTime? @map("approval_approved_at")
   isAuditDraft       Boolean  @default(false) @map("is_audit_draft")
   followDept         String?  @map("follow_dept")
   costDept           String?  @map("cost_dept")
@@ -75,10 +88,11 @@ model Contract {
   createdAt          DateTime @default(now()) @map("created_at")
   userId             String?  @map("user_id")
 
-  user      User?         @relation(fields: [userId], references: [id])
+  user      User?           @relation(fields: [userId], references: [id])
   uploads   Upload[]
   audits    AuditRecord[]
   reminders Reminder[]
+  approvals ApprovalRecord[] @relation("ContractApprovals")
 
   @@map("contracts")
 }
@@ -174,20 +188,51 @@ model AiConfig {
 }
 
 model Project {
-  id          String    @id @default(uuid())
-  name        String
-  description String?
-  status      String    @default("active")
-  startDate   DateTime? @map("start_date")
-  endDate     DateTime? @map("end_date")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  name                  String
+  description           String?
+  status                String    @default("active")
+  department            String?
+  priority              String    @default("medium")
+  type                  String?
+  progress              Int       @default(0)
+  ownerId               String?   @map("owner_id")
+  targetName            String?   @map("target_name")
+  targetDate            DateTime? @map("target_date")
+  countdownMode         Boolean   @default(false) @map("countdown_mode")
+  countdownLabel        String?   @map("countdown_label")
+  completionNote        String?   @map("completion_note")
+  completionSubmittedAt DateTime? @map("completion_submitted_at")
+  completionApprovedAt  DateTime? @map("completion_approved_at")
+  startDate             DateTime? @map("start_date")
+  endDate               DateTime? @map("end_date")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
+  owner      User? @relation("ProjectOwner", fields: [ownerId], references: [id])
   tasks      Task[]
   members    ProjectMember[]
+  files      ProjectFile[]
   changeLogs TaskChangeLog[]
 
   @@map("projects")
+}
+
+model ProjectFile {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  filename     String
+  originalName String   @map("original_name")
+  size         Int
+  mimeType     String   @map("mime_type")
+  fileType     String   @default("support") @map("file_type")
+  uploadedBy   String?  @map("uploaded_by")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploader User?  @relation(fields: [uploadedBy], references: [id])
+
+  @@map("project_files")
 }
 
 model ProjectMember {
@@ -215,6 +260,13 @@ model Task {
   startDate   DateTime? @map("start_date")
   dueDate     DateTime? @map("due_date")
   completedAt DateTime? @map("completed_at")
+  completionNote String? @map("completion_note")
+  completionSubmittedAt DateTime? @map("completion_submitted_at")
+  completionApprovedAt DateTime? @map("completion_approved_at")
+  progress    Int       @default(0)
+  relativeToTarget Boolean @default(false) @map("relative_to_target")
+  startOffsetDays Int? @map("start_offset_days")
+  dueOffsetDays Int? @map("due_offset_days")
   sortOrder   Int       @default(0) @map("sort_order")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -224,12 +276,30 @@ model Task {
   subtasks        Task[]           @relation("TaskSubtasks")
   assignee        User?            @relation(fields: [assigneeId], references: [id])
   comments        TaskComment[]
+  files           TaskFile[]
   changeLogs      TaskChangeLog[]
   dependencies    TaskDependency[] @relation("TaskDependents")
   dependents      TaskDependency[] @relation("TaskDependencies")
   progressUpdates ProgressUpdate[]
 
   @@map("tasks")
+}
+
+model TaskFile {
+  id           String   @id @default(uuid())
+  taskId       String   @map("task_id")
+  filename     String
+  originalName String   @map("original_name")
+  size         Int
+  mimeType     String   @map("mime_type")
+  fileType     String   @default("completion") @map("file_type")
+  uploadedBy   String?  @map("uploaded_by")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  task     Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader User? @relation(fields: [uploadedBy], references: [id])
+
+  @@map("task_files")
 }
 
 model TaskDependency {
@@ -310,7 +380,7 @@ model ProcurementRequest {
 
   requester     User             @relation(fields: [requesterId], references: [id])
   supplier      Supplier?        @relation(fields: [supplierId], references: [id])
-  approvals     ApprovalRecord[]
+  approvals     ApprovalRecord[] @relation("ProcurementApprovals")
   purchaseOrder PurchaseOrder?   @relation("PurchaseOrderRequests", fields: [purchaseOrderId], references: [id])
 
   @@map("procurement_requests")
@@ -354,6 +424,259 @@ model PurchaseOrder {
   @@map("purchase_orders")
 }
 
+model AssetSetting {
+  id          String   @id @default(uuid())
+  category    String
+  code        String
+  name        String
+  description String?
+  status      String   @default("active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  remark      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([category, code])
+  @@map("asset_settings")
+}
+
+model AssetItem {
+  id        String   @id @default(uuid())
+  itemNo    String   @unique @map("item_no")
+  itemName  String   @map("item_name")
+  itemDec   String?  @map("item_dec")
+  itemBrand String?  @map("item_brand")
+  itemUnit  String?  @map("item_unit")
+  bsstype   String?
+  assettype String?
+  status    String   @default("active")
+  remark    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  prices       AssetPrice[]
+  requestItems AssetPurchaseRequestItem[]
+  orderItems   AssetPurchaseOrderItem[]
+  receivingItems AssetReceivingItem[]
+  inventoryBalances InventoryBalance[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@map("asset_items")
+}
+
+model AssetSupplier {
+  id              String   @id @default(uuid())
+  suppliersId     String   @unique @map("suppliers_id")
+  suppliersNameCn String   @map("suppliers_name_cn")
+  suppliersNameEn String?  @map("suppliers_name_en")
+  suppliersCity   String?  @map("suppliers_city")
+  contactPerson   String?  @map("contact_person")
+  contactTitle    String?  @map("contact_title")
+  contactNumber   String?  @map("contact_number")
+  email           String?
+  invoiceName     String?  @map("invoice_name")
+  taxId           String?  @map("tax_id")
+  invoiceAdd      String?  @map("invoice_add")
+  bank            String?
+  bankAccountNo   String?  @map("bank_account_no")
+  status          String   @default("active")
+  remark          String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  prices       AssetPrice[]
+  requestItems AssetPurchaseRequestItem[]
+  purchaseOrders AssetPurchaseOrder[]
+
+  @@map("asset_suppliers")
+}
+
+model AssetPrice {
+  id             String   @id @default(uuid())
+  itemId         String   @map("item_id")
+  supplierId     String   @map("supplier_id")
+  unitPrice      Float    @default(0) @map("unit_price")
+  taxRate        Float    @default(0) @map("tax_rate")
+  effectiveDate  DateTime? @map("effective_date")
+  expiryDate     DateTime? @map("expiry_date")
+  status         String   @default("draft")
+  remark         String?
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  item     AssetItem     @relation(fields: [itemId], references: [id])
+  supplier AssetSupplier @relation(fields: [supplierId], references: [id])
+
+  @@map("asset_prices")
+}
+
+model AssetPurchaseRequest {
+  id          String   @id @default(uuid())
+  requestNo   String   @unique @map("request_no")
+  title       String
+  department  String?
+  costCenter  String?  @map("cost_center")
+  status      String   @default("draft")
+  reason      String?
+  requesterId String   @map("requester_id")
+  totalAmount Float    @default(0) @map("total_amount")
+  submitNote  String?  @map("submit_note")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requester User                       @relation(fields: [requesterId], references: [id])
+  items     AssetPurchaseRequestItem[]
+  orders    AssetPurchaseOrder[]
+
+  @@map("asset_purchase_requests")
+}
+
+model AssetPurchaseRequestItem {
+  id          String @id @default(uuid())
+  requestId   String @map("request_id")
+  itemId      String @map("item_id")
+  supplierId  String? @map("supplier_id")
+  quantity    Float  @default(1)
+  unit        String?
+  unitPrice   Float  @default(0) @map("unit_price")
+  taxRate     Float  @default(0) @map("tax_rate")
+  amount      Float  @default(0)
+  remark      String?
+
+  request  AssetPurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  item     AssetItem             @relation(fields: [itemId], references: [id])
+  supplier AssetSupplier?        @relation(fields: [supplierId], references: [id])
+
+  @@map("asset_purchase_request_items")
+}
+
+model AssetPurchaseOrder {
+  id          String   @id @default(uuid())
+  orderNo     String   @unique @map("order_no")
+  requestId   String?  @map("request_id")
+  supplierId  String   @map("supplier_id")
+  status      String   @default("pending")
+  totalAmount Float    @default(0) @map("total_amount")
+  orderedDate DateTime? @map("ordered_date")
+  remark      String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  request  AssetPurchaseRequest? @relation(fields: [requestId], references: [id])
+  supplier AssetSupplier         @relation(fields: [supplierId], references: [id])
+  items    AssetPurchaseOrderItem[]
+  receipts AssetReceivingRecord[]
+
+  @@map("asset_purchase_orders")
+}
+
+model AssetPurchaseOrderItem {
+  id         String @id @default(uuid())
+  orderId    String @map("order_id")
+  itemId     String @map("item_id")
+  quantity   Float  @default(1)
+  receivedQty Float @default(0) @map("received_qty")
+  unit       String?
+  unitPrice  Float  @default(0) @map("unit_price")
+  taxRate    Float  @default(0) @map("tax_rate")
+  amount     Float  @default(0)
+  remark     String?
+
+  order AssetPurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  AssetItem          @relation(fields: [itemId], references: [id])
+  receivingItems AssetReceivingItem[]
+
+  @@map("asset_purchase_order_items")
+}
+
+model AssetReceivingRecord {
+  id          String   @id @default(uuid())
+  receiptNo   String   @unique @map("receipt_no")
+  orderId     String?  @map("order_id")
+  warehouse   String?
+  status      String   @default("draft")
+  receivedBy  String?  @map("received_by")
+  receivedAt  DateTime @default(now()) @map("received_at")
+  submitNote  String?  @map("submit_note")
+  remark      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  order AssetPurchaseOrder? @relation(fields: [orderId], references: [id])
+  items AssetReceivingItem[]
+
+  @@map("asset_receiving_records")
+}
+
+model AssetReceivingItem {
+  id        String @id @default(uuid())
+  receiptId String @map("receipt_id")
+  orderItemId String? @map("order_item_id")
+  itemId    String @map("item_id")
+  quantity  Float  @default(1)
+  unit      String?
+  unitPrice Float  @default(0) @map("unit_price")
+  amount    Float  @default(0)
+  remark    String?
+
+  receipt   AssetReceivingRecord @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  orderItem AssetPurchaseOrderItem? @relation(fields: [orderItemId], references: [id])
+  item      AssetItem @relation(fields: [itemId], references: [id])
+
+  @@map("asset_receiving_items")
+}
+
+model InventoryBalance {
+  id        String   @id @default(uuid())
+  itemId    String   @map("item_id")
+  warehouse String
+  quantity  Float    @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  item AssetItem @relation(fields: [itemId], references: [id])
+
+  @@unique([itemId, warehouse])
+  @@map("inventory_balances")
+}
+
+model InventoryTransaction {
+  id            String   @id @default(uuid())
+  itemId        String   @map("item_id")
+  warehouse     String
+  operationType String   @map("operation_type")
+  quantity      Float
+  unit          String?
+  refType       String?  @map("ref_type")
+  refId         String?  @map("ref_id")
+  remark        String?
+  createdBy     String?  @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  item AssetItem @relation(fields: [itemId], references: [id])
+
+  @@map("inventory_transactions")
+}
+
+model AssetChangeRequest {
+  id          String   @id @default(uuid())
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  action      String
+  payload     Json
+  status      String   @default("pending")
+  submitNote  String?  @map("submit_note")
+  requestedBy String   @map("requested_by")
+  approvedAt  DateTime? @map("approved_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requester User @relation(fields: [requestedBy], references: [id])
+
+  @@map("asset_change_requests")
+}
+
 model ApprovalFlow {
   id          String   @id @default(uuid())
   name        String
@@ -390,10 +713,16 @@ model ApprovalRecord {
   approverId  String   @map("approver_id")
   status      String   @default("pending")
   comment     String?
+  auditRecordId String? @map("audit_record_id")
+  auditSnapshot String? @map("audit_snapshot")
+  submitNote  String? @map("submit_note")
+  riskScore   Int? @map("risk_score")
+  criticalIssueCount Int? @map("critical_issue_count")
   createdAt   DateTime @default(now()) @map("created_at")
 
   approver           User                @relation(fields: [approverId], references: [id])
-  procurementRequest ProcurementRequest? @relation(fields: [requestId], references: [id])
+  procurementRequest ProcurementRequest? @relation("ProcurementApprovals", fields: [requestId], references: [id], map: "fk_approval_procurement")
+  contract           Contract?           @relation("ContractApprovals", fields: [requestId], references: [id], map: "fk_approval_contract")
 
   @@map("approval_records")
 }

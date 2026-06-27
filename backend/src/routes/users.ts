@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { AuthRequest, authenticateToken, requireRole } from '../middleware/auth.js';
 import prisma from '../prisma.js';
 import { toSnakeArray, toSnakeRecord } from '../serializers.js';
+import { buildUserAuthPayload } from '../services/permissions.js';
 
 const router = Router();
 
@@ -10,20 +11,35 @@ router.use(authenticateToken);
 
 // GET /api/users — list all users (super_admin only)
 router.get('/', requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
-  const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json(toSnakeArray(users.map(({ passwordHash, ...user }) => user)));
+  const users = await prisma.user.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: {
+      userRoles: {
+        include: { role: true },
+      },
+    },
+  });
+
+  res.json(toSnakeArray(users.map(({ passwordHash, userRoles, ...user }: any) => ({
+    ...user,
+    customRoles: (Array.isArray(userRoles) ? userRoles : []).map((userRole) => ({
+      id: userRole.role.id,
+      name: userRole.role.name,
+      description: userRole.role.description,
+      isSystem: userRole.role.isSystem,
+    })),
+  }))));
 });
 
 // GET /api/users/me — current user profile
 router.get('/me', async (req: AuthRequest, res: Response) => {
-  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  const user = req.userId ? await buildUserAuthPayload(req.userId) : null;
 
   if (!user) {
     res.status(404).json({ error: '用户不存在' });
     return;
   }
-  const { passwordHash, ...safeUser } = user;
-  res.json(toSnakeRecord(safeUser));
+  res.json(user);
 });
 
 // PUT /api/users/me — update own profile

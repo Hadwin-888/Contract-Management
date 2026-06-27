@@ -48,6 +48,43 @@ export async function deleteContract(id: string): Promise<void> {
   await apiClient.delete(`/contracts/${id}`)
 }
 
+export async function submitContractApproval(
+  id: string,
+  data: { submitNote?: string; confirmRisk?: boolean } = {},
+): Promise<{ message: string; nextStep?: string; flowName?: string; stepCount?: number }> {
+  const response = await apiClient.post(`/contracts/${id}/submit-approval`, data)
+  return response.data
+}
+
+export interface ApprovalProgressRecord {
+  id: string
+  status: 'pending' | 'approved' | 'rejected'
+  comment?: string | null
+  createdAt: string
+  approver?: { id: string; name: string }
+}
+
+export interface ApprovalProgress {
+  status: 'not_submitted' | 'pending_approval' | 'approved' | 'rejected' | 'pending_archive' | 'archived'
+  submitted: boolean
+  pendingCount: number
+  approvedCount: number
+  rejectedCount: number
+  totalSteps: number
+  archiveStatus?: string
+  approvalSubmittedAt?: string | null
+  approvalApprovedAt?: string | null
+  sealedFilePath?: string | null
+  sealedUploadedAt?: string | null
+  records: ApprovalProgressRecord[]
+  flow?: { id: string; name: string; steps: unknown[] } | null
+}
+
+export async function fetchApprovalProgress(id: string): Promise<ApprovalProgress> {
+  const response = await apiClient.get(`/contracts/${id}/approval-progress`)
+  return response.data
+}
+
 export interface AiExtractResult {
   name: string
   partyA: string

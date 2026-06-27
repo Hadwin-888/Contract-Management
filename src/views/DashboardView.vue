@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDashboardStore } from '@/stores/dashboard'
+import apiClient from '@/api/client'
 import PageTransition from '@/components/common/PageTransition.vue'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import RiskWidget from '@/components/dashboard/RiskWidget.vue'
@@ -23,15 +24,18 @@ onMounted(async () => {
 
 async function loadPendingApprovals() {
   try {
-    const { fetchProcurementRequests } = await import('@/api/procurement')
-    const result = await fetchProcurementRequests({ pageSize: 5, status: 'pending' })
-    pendingApprovals.value = result.items
+    const result = await apiClient.get('/approvals/pending', { params: { pageSize: 5 } })
+    pendingApprovals.value = result.data.items
   } catch {
     // ignore
   }
 }
 
 function goToApprovals() {
+  router.push('/approvals')
+}
+
+function openApprovalItem() {
   router.push('/approvals')
 }
 </script>
@@ -114,13 +118,28 @@ function goToApprovals() {
             <button class="view-all-btn" @click="goToApprovals">{{ t('common.more') }}</button>
           </div>
           <div class="approvals-list">
-            <div v-for="item in pendingApprovals" :key="item.id" class="approval-item">
-              <div class="approval-icon">
+            <div
+              v-for="item in pendingApprovals"
+              :key="item.id"
+              class="approval-item"
+              role="button"
+              tabindex="0"
+              @click="openApprovalItem"
+              @keydown.enter="openApprovalItem"
+            >
+              <div class="approval-icon" :class="item.requestType">
                 <Clock :size="16" />
               </div>
               <div class="approval-info">
-                <span class="approval-title">{{ item.title }}</span>
+                <span class="approval-title">
+                  <span class="approval-type">{{ item.requestType === 'contract' ? '合同' : '采购' }}</span>
+                  {{ item.title }}
+                </span>
                 <span class="approval-meta">{{ item.requester?.name || '-' }} · {{ new Date(item.createdAt).toLocaleDateString('zh-CN') }}</span>
+                <span v-if="item.requestType === 'contract' && typeof item.riskScore === 'number'" class="approval-risk">
+                  AI风险 {{ item.riskScore }}分
+                  <template v-if="typeof item.criticalIssueCount === 'number'"> · 严重问题 {{ item.criticalIssueCount }}项</template>
+                </span>
               </div>
               <el-tag size="small" type="warning">{{ t('approval.pendingApprovals') }}</el-tag>
             </div>
@@ -275,6 +294,14 @@ function goToApprovals() {
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--bg-secondary, #f9fafb);
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.16s ease;
+}
+.approval-item:hover,
+.approval-item:focus-visible {
+  background: rgba(0, 122, 255, 0.06);
+  outline: none;
+  transform: translateY(-1px);
 }
 .approval-icon {
   width: 32px; height: 32px;
@@ -284,9 +311,29 @@ function goToApprovals() {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.approval-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.approval-title { font-size: 13px; font-weight: 500; color: var(--text-primary, #111); }
-.approval-meta { font-size: 11px; color: var(--text-tertiary, #9ca3af); }
+.approval-icon.contract { background: rgba(0, 122, 255, 0.1); color: #007aff; }
+.approval-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.approval-title { overflow: hidden; font-size: 13px; font-weight: 500; color: var(--text-primary, #111); text-overflow: ellipsis; white-space: nowrap; }
+.approval-type {
+  display: inline-flex;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+}
+.approval-meta { overflow: hidden; font-size: 11px; color: var(--text-tertiary, #9ca3af); text-overflow: ellipsis; white-space: nowrap; }
+.approval-risk {
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.1);
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 500;
+}
 .empty-approvals {
   display: flex; align-items: center; gap: 8px;
   padding: 16px; color: var(--text-tertiary, #9ca3af);

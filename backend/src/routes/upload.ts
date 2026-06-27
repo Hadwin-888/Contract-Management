@@ -106,6 +106,14 @@ router.post('/', upload.single('file'), async (req: AuthRequest, res: Response) 
 
   const field = req.body.field || 'contract';
 
+  if (field === 'sealed' && contract) {
+    const status = contract.status as string;
+    if (!['approved', 'pending_archive', 'archived'].includes(status)) {
+      res.status(400).json({ error: '合同审批通过后才可以上传双方盖章件' });
+      return;
+    }
+  }
+
   let originalName = req.file.originalname;
   try {
     const reencoded = Buffer.from(originalName, 'latin1').toString('utf-8');
@@ -140,6 +148,19 @@ router.post('/', upload.single('file'), async (req: AuthRequest, res: Response) 
   if (contractId) {
     if (field === 'insurance') {
       await prisma.contract.update({ where: { id: contractId }, data: { insuranceFilePath: relativePath } });
+    } else if (field === 'sealed') {
+      await prisma.contract.update({
+        where: { id: contractId },
+        data: {
+          sealedFilePath: relativePath,
+          archiveStatus: 'archived',
+          status: 'archived',
+          sealedUploadedBy: req.userId || null,
+          sealedUploadedAt: new Date(),
+          sealedVerificationStatus: 'pending_manual_review',
+          sealedVerificationReport: '已上传双方盖章合同扫描件。请人工确认盖章件与审批通过版本一致；后续可接入 AI 自动核对。',
+        },
+      });
     } else {
       await prisma.contract.update({ where: { id: contractId }, data: { filePath: relativePath } });
     }

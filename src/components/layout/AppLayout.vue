@@ -62,7 +62,7 @@ const { t } = useI18n()
 }
 
 .platform-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-primary, #111827);
 }

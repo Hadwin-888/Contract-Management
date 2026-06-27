@@ -17,6 +17,7 @@ const password = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const focusedField = ref<'none' | 'username' | 'password'>('none')
+const bgFileInput = ref<HTMLInputElement | null>(null)
 
 // Background state
 const bgType = ref<'gradient' | 'image'>('gradient')
@@ -58,23 +59,34 @@ onMounted(() => {
 })
 
 function handleBgChange() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.onchange = (e: any) => {
-    const file = e.target?.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string
-      customBgImage.value = dataUrl
-      bgType.value = 'image'
-      localStorage.setItem('loginBgImage', dataUrl)
-      ElMessage.success('背景已更换')
-    }
-    reader.readAsDataURL(file)
+  bgFileInput.value?.click()
+}
+
+function handleBgFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片文件')
+    input.value = ''
+    return
   }
-  input.click()
+
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    const dataUrl = ev.target?.result as string
+    customBgImage.value = dataUrl
+    bgType.value = 'image'
+    try {
+      localStorage.setItem('loginBgImage', dataUrl)
+    } catch {
+      ElMessage.warning('图片较大，已临时预览但无法保存到本地')
+    }
+    ElMessage.success('背景已更换')
+    input.value = ''
+  }
+  reader.readAsDataURL(file)
 }
 
 function resetBg() {
@@ -111,7 +123,11 @@ function onUsernameFocus() {
   focusedField.value = 'username'
 }
 
-function onUsernameBlur() {
+function onUsernameBlur(event?: FocusEvent) {
+  const current = event?.currentTarget as HTMLElement | undefined
+  const next = event?.relatedTarget as Node | null | undefined
+  if (current && next && current.contains(next)) return
+
   if (focusedField.value === 'username') {
     focusedField.value = 'none'
   }
@@ -121,7 +137,11 @@ function onPasswordFocus() {
   focusedField.value = 'password'
 }
 
-function onPasswordBlur() {
+function onPasswordBlur(event?: FocusEvent) {
+  const current = event?.currentTarget as HTMLElement | undefined
+  const next = event?.relatedTarget as Node | null | undefined
+  if (current && next && current.contains(next)) return
+
   if (focusedField.value === 'password') {
     focusedField.value = 'none'
   }
@@ -144,23 +164,19 @@ function onPasswordBlur() {
     <!-- Background control button -->
     <div class="bg-controls">
       <LanguageSwitcher />
-      <el-dropdown trigger="click" placement="top-end">
-        <button class="bg-btn" title="更换背景">
-          <Image :size="16" />
-        </button>
-        <template #dropdown>
-          <div class="bg-dropdown">
-            <button class="bg-dropdown-item" @click="handleBgChange">
-              <span class="bg-dropdown-icon">🖼️</span>
-              <span>{{ t('common.upload') }}</span>
-            </button>
-            <button v-if="bgType === 'image'" class="bg-dropdown-item" @click="resetBg">
-              <span class="bg-dropdown-icon">🎨</span>
-              <span>{{ t('common.reset') }}</span>
-            </button>
-          </div>
-        </template>
-      </el-dropdown>
+      <button class="bg-btn" type="button" title="更换背景图片" @click="handleBgChange">
+        <Image :size="16" />
+      </button>
+      <button v-if="bgType === 'image'" class="bg-reset-btn" type="button" title="恢复默认背景" @click="resetBg">
+        {{ t('common.reset') }}
+      </button>
+      <input
+        ref="bgFileInput"
+        class="bg-file-input"
+        type="file"
+        accept="image/*"
+        @change="handleBgFileChange"
+      />
     </div>
 
     <!-- Login scene -->
@@ -176,7 +192,7 @@ function onPasswordBlur() {
         <p class="welcome-subtitle">{{ t('auth.login') }}</p>
 
         <form @submit.prevent="handleLogin" class="login-form">
-          <div class="input-group">
+          <div class="input-group" @click="onUsernameFocus" @focusin="onUsernameFocus" @focusout="onUsernameBlur">
             <div class="input-icon">
               <User :size="18" />
             </div>
@@ -188,12 +204,10 @@ function onPasswordBlur() {
               class="login-input"
               autocomplete="off"
               name="username"
-              @focus="onUsernameFocus"
-              @blur="onUsernameBlur"
             />
           </div>
 
-          <div class="input-group">
+          <div class="input-group" @click="onPasswordFocus" @focusin="onPasswordFocus" @focusout="onPasswordBlur">
             <div class="input-icon">
               <Lock :size="18" />
             </div>
@@ -206,8 +220,6 @@ function onPasswordBlur() {
               class="login-input"
               autocomplete="new-password"
               name="password"
-              @focus="onPasswordFocus"
-              @blur="onPasswordBlur"
             >
               <template #suffix>
                 <button
@@ -322,8 +334,9 @@ function onPasswordBlur() {
 .custom-bg-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.15);
-  backdrop-filter: blur(4px);
+  background:
+    linear-gradient(90deg, rgba(246, 249, 252, 0.34), rgba(246, 249, 252, 0.08)),
+    rgba(0, 0, 0, 0.04);
 }
 
 /* === Background controls === */
@@ -332,9 +345,13 @@ function onPasswordBlur() {
   bottom: 24px;
   right: 24px;
   z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.bg-btn {
+.bg-btn,
+.bg-reset-btn {
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -350,41 +367,24 @@ function onPasswordBlur() {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
-.bg-btn:hover {
+.bg-reset-btn {
+  width: auto;
+  min-width: 52px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.bg-btn:hover,
+.bg-reset-btn:hover {
   background: white;
   color: var(--apple-blue);
   transform: scale(1.1);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
 }
 
-.bg-dropdown {
-  padding: 6px;
-  min-width: 180px;
-}
-
-.bg-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border: none;
-  background: none;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-  transition: all 0.15s ease;
-  text-align: left;
-}
-
-.bg-dropdown-item:hover {
-  background: rgba(0, 122, 255, 0.08);
-  color: var(--apple-blue);
-}
-
-.bg-dropdown-icon {
-  font-size: 16px;
+.bg-file-input {
+  display: none;
 }
 
 /* === Login scene === */
@@ -403,9 +403,9 @@ function onPasswordBlur() {
 /* === Cartoon character area (always on the left) === */
 .character-area {
   flex-shrink: 0;
-  width: 190px;
-  height: 220px;
-  margin-right: -30px;
+  width: 230px;
+  height: 260px;
+  margin-right: -38px;
   z-index: 10;
   transition: none;
 }
@@ -418,20 +418,31 @@ function onPasswordBlur() {
 
 /* === Login card === */
 .login-card {
-  width: 420px;
+  width: 460px;
   max-width: 100%;
   padding: 40px;
   text-align: center;
   position: relative;
   z-index: 5;
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(18px) saturate(1.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.has-image-bg .login-card {
+  background: rgba(255, 255, 255, 0.38);
+  border-color: rgba(255, 255, 255, 0.72);
 }
 
 .welcome-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--text-primary);
   margin: 0 0 8px;
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
 }
 
 .welcome-subtitle {
@@ -464,6 +475,15 @@ function onPasswordBlur() {
   padding-left: 42px !important;
   height: 48px;
   border-radius: var(--radius-input) !important;
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5), 0 2px 10px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.login-input :deep(.el-input__wrapper.is-focus) {
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 0 0 1px rgba(0, 110, 219, 0.28), 0 6px 16px rgba(0, 110, 219, 0.08);
 }
 
 .password-toggle {
@@ -508,9 +528,11 @@ function onPasswordBlur() {
 
   .character-area {
     margin-right: 0;
-    margin-bottom: -40px;
-    width: 140px;
-    height: 160px;
+    margin-bottom: -44px;
+    width: 160px;
+    height: 190px;
+    transform: scale(0.78);
+    transform-origin: bottom center;
   }
 }
 </style>

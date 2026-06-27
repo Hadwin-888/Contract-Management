@@ -4,12 +4,12 @@ import {
   ElTable, ElTableColumn, ElButton, ElDrawer, ElTag,
   ElDescriptions, ElDescriptionsItem, ElMessage, ElDialog,
   ElForm, ElFormItem, ElInput, ElSelect, ElOption, ElUpload,
-  ElDatePicker, ElInputNumber,
+  ElDatePicker, ElInputNumber, ElCheckbox,
 } from 'element-plus'
-import { Sparkles, Upload, FileText, X, Download, FileSpreadsheet } from 'lucide-vue-next'
+import { Sparkles, Upload, FileText, X, Download, FileSpreadsheet, MoreHorizontal } from 'lucide-vue-next'
 import PageTransition from '@/components/common/PageTransition.vue'
 import { fetchAuditRecords, analyzeContract as apiAnalyzeContract, clearAuditRecords, deleteAuditRecord } from '@/api/audit'
-import { createContract } from '@/api/contracts'
+import { createContract, fetchApprovalProgress, submitContractApproval } from '@/api/contracts'
 import { uploadFile } from '@/api/upload'
 import { fetchTemplates } from '@/api/templates'
 import { useAuthStore } from '@/stores/auth'
@@ -24,6 +24,14 @@ const drawerVisible = ref(false)
 const total = ref(0)
 const page = ref(1)
 const canAuditExistingContracts = computed(() => authStore.hasPermission('contracts'))
+const approvalDialogVisible = ref(false)
+const approvalSubmitting = ref(false)
+const approvalRecord = ref<AuditRecord | null>(null)
+const approvalForm = ref({
+  submitNote: '',
+  confirmRisk: false,
+})
+const approvalProgressMap = ref<Record<string, any>>({})
 
 // File types from audit config
 interface FileTypeOption {
@@ -76,11 +84,25 @@ async function loadRecords() {
     const result = await fetchAuditRecords({ page: page.value, pageSize: 20 })
     records.value = result.items
     total.value = result.total
+    await loadApprovalProgress(result.items)
   } catch (error) {
     console.error('Failed to load audit records:', error)
   } finally {
     loading.value = false
   }
+}
+
+async function loadApprovalProgress(items: AuditRecord[]) {
+  const entries = await Promise.all(
+    items.map(async (record) => {
+      try {
+        return [record.contract_id, await fetchApprovalProgress(record.contract_id)] as const
+      } catch {
+        return [record.contract_id, null] as const
+      }
+    }),
+  )
+  approvalProgressMap.value = Object.fromEntries(entries.filter(([, progress]) => progress))
 }
 
 function openUploadDialog() {
@@ -208,6 +230,106 @@ function renderMarkdown(md: string): string {
 function viewDetail(record: AuditRecord) {
   selectedRecord.value = record
   drawerVisible.value = true
+}
+
+function getApprovalProgress(record: AuditRecord | null) {
+  if (!record) return null
+  return approvalProgressMap.value[record.contract_id] || null
+}
+
+function getApprovalStatusTag(record: AuditRecord | null) {
+  const progress = getApprovalProgress(record)
+  const map: Record<string, { label: string; type: 'success' | 'warning' | 'danger' | 'info' }> = {
+    not_submitted: { label: '未提交', type: 'info' },
+    pending_approval: { label: '审批中', type: 'warning' },
+    approved: { label: '审批通过', type: 'success' },
+    rejected: { label: '已驳回', type: 'danger' },
+    pending_archive: { label: '待归档', type: 'warning' },
+    archived: { label: '已归档', type: 'success' },
+  }
+  return map[progress?.status || 'not_submitted'] || map.not_submitted
+}
+
+function approvalProgressText(record: AuditRecord | null) {
+  const progress = getApprovalProgress(record)
+  if (!progress || progress.status === 'not_submitted') return '尚未提交审批'
+  const approvedNames = approvalNames(record, 'approved')
+  const pendingNames = approvalNames(record, 'pending')
+  const rejectedNames = approvalNames(record, 'rejected')
+  if (progress.status === 'pending_approval') {
+    const approved = approvedNames.length ? `已审批：${approvedNames.join('、')}` : '暂无已审批人'
+    const pending = pendingNames.length ? `待审批：${pendingNames.join('、')}` : '暂无待审批人'
+    return `${approved}；${pending}`
+  }
+  if (progress.status === 'rejected') {
+    return rejectedNames.length ? `驳回人：${rejectedNames.join('、')}` : '审批已驳回，可修改原因后重新提交'
+  }
+  if (progress.status === 'pending_archive') return '审批已通过，待上传双方盖章件'
+  if (progress.status === 'archived') return '已上传盖章件并完成归档'
+  return approvedNames.length ? `已审批：${approvedNames.join('、')}` : '审批已通过'
+}
+
+function approvalNames(record: AuditRecord | null, status: 'pending' | 'approved' | 'rejected') {
+  const progress = getApprovalProgress(record)
+  const rows = Array.isArray(progress?.records) ? progress.records : []
+  return rows
+    .filter((row: any) => row.status === status)
+    .map((row: any) => row.approver?.name || '-')
+    .filter(Boolean)
+}
+
+function approvalGroups(record: AuditRecord | null) {
+  return [
+    { key: 'approved', title: '已审批人', names: approvalNames(record, 'approved') },
+    { key: 'pending', title: '待审批人', names: approvalNames(record, 'pending') },
+    { key: 'rejected', title: '驳回人', names: approvalNames(record, 'rejected') },
+  ].filter((group) => group.names.length > 0)
+}
+
+function criticalIssueCount(record: any) {
+  const issues = Array.isArray(record.reviewed_issues) ? record.reviewed_issues : []
+  return issues.filter((issue: any) => issue.severity === 'high').length
+}
+
+function requiresRiskReason(record: any) {
+  return record.status === 'fail' || criticalIssueCount(record) > 0
+}
+
+function openSubmitApproval(record: AuditRecord) {
+  approvalRecord.value = record
+  approvalForm.value = {
+    submitNote: '',
+    confirmRisk: !requiresRiskReason(record),
+  }
+  approvalDialogVisible.value = true
+}
+
+async function confirmSubmitApproval() {
+  if (!approvalRecord.value) return
+  if (requiresRiskReason(approvalRecord.value) && !approvalForm.value.confirmRisk) {
+    ElMessage.warning('审核未通过或存在严重问题，请确认带风险提交后再继续')
+    return
+  }
+  if (requiresRiskReason(approvalRecord.value) && !approvalForm.value.submitNote.trim()) {
+    ElMessage.warning('请填写提交原因')
+    return
+  }
+
+  approvalSubmitting.value = true
+  try {
+    const result = await submitContractApproval(approvalRecord.value.contract_id, {
+      submitNote: approvalForm.value.submitNote,
+      confirmRisk: approvalForm.value.confirmRisk,
+    })
+    ElMessage.success(result.message || '已提交审批')
+    approvalDialogVisible.value = false
+    drawerVisible.value = false
+    await loadRecords()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '提交审批失败')
+  } finally {
+    approvalSubmitting.value = false
+  }
 }
 
 function downloadTxtReport(record: AuditRecord) {
@@ -421,8 +543,8 @@ function removeFile() {
     <div class="audit-page">
       <div class="page-header">
         <div>
-          <h1 class="page-title">AI审核</h1>
-          <p class="page-desc">上传合同文件，AI 智能审核与风险分析</p>
+          <h1 class="page-title">{{ $t('nav.audit') }}</h1>
+          <p class="page-desc">上传合同文件，AI 自动提取内容、识别风险并生成审核报告</p>
         </div>
         <div class="header-actions">
           <el-button v-if="canAuditExistingContracts" size="large" class="action-btn" @click="triggerAnalysis" :loading="analyzing">
@@ -514,20 +636,44 @@ function removeFile() {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="240" fixed="right">
+          <el-table-column label="审批进度" min-width="170">
             <template #default="{ row }">
-              <el-button text size="small" type="primary" @click="viewDetail(row as unknown as AuditRecord)">
-                查看详情
-              </el-button>
-              <el-button text size="small" type="success" @click="downloadTxtReport(row as unknown as AuditRecord)">
-                .txt
-              </el-button>
-              <el-button text size="small" type="warning" @click="downloadPdfReport(row as unknown as AuditRecord)">
-                PDF
-              </el-button>
-              <el-button v-if="(row as any).summary" text size="small" type="warning" @click="downloadSummary(row as any)">
-                文件概况
-              </el-button>
+              <div class="approval-progress-cell">
+                <el-tag :type="getApprovalStatusTag(row as unknown as AuditRecord).type" size="small" round>
+                  {{ getApprovalStatusTag(row as unknown as AuditRecord).label }}
+                </el-tag>
+                <span>{{ approvalProgressText(row as unknown as AuditRecord) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="190" fixed="right">
+            <template #default="{ row }">
+              <div class="row-actions">
+                <el-button text size="small" type="primary" @click="viewDetail(row as unknown as AuditRecord)">
+                  查看
+                </el-button>
+                <el-button text size="small" type="primary" @click="openSubmitApproval(row as unknown as AuditRecord)">
+                  提交审批
+                </el-button>
+                <el-dropdown trigger="click" placement="bottom-end">
+                  <el-button text size="small" class="icon-btn">
+                    <MoreHorizontal :size="16" />
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item @click="downloadTxtReport(row as unknown as AuditRecord)">
+                        下载 TXT 审核报告
+                      </el-dropdown-item>
+                      <el-dropdown-item @click="downloadPdfReport(row as unknown as AuditRecord)">
+                        下载 PDF 审核报告
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="(row as any).summary" @click="downloadSummary(row as any)">
+                        下载文件概况
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -598,51 +744,149 @@ function removeFile() {
         </template>
       </el-dialog>
 
-      <!-- Detail drawer -->
-      <el-drawer
+      <el-dialog
+        v-model="approvalDialogVisible"
+        title="提交合同审批"
+        width="560px"
+        :close-on-click-modal="false"
+      >
+        <div v-if="approvalRecord" class="approval-submit-panel">
+          <div class="approval-summary">
+            <div>
+              <span class="summary-label">合同名称</span>
+              <strong>{{ approvalRecord.contract_name || '-' }}</strong>
+            </div>
+            <div>
+              <span class="summary-label">风险评分</span>
+              <strong :style="{ color: getScoreColor(approvalRecord.risk_score) }">{{ approvalRecord.risk_score }}分</strong>
+            </div>
+            <div>
+              <span class="summary-label">严重问题</span>
+              <strong>{{ criticalIssueCount(approvalRecord) }}项</strong>
+            </div>
+          </div>
+
+          <el-form label-position="top" size="large">
+            <el-form-item label="提交说明">
+              <el-input
+                v-model="approvalForm.submitNote"
+                type="textarea"
+                :rows="3"
+                placeholder="可填写已修改的问题、需审批人关注的风险或补充说明"
+              />
+            </el-form-item>
+            <el-checkbox
+              v-model="approvalForm.confirmRisk"
+              :disabled="!requiresRiskReason(approvalRecord)"
+            >
+              已确认 AI 审核风险，仍需提交审批
+            </el-checkbox>
+          </el-form>
+
+          <p v-if="requiresRiskReason(approvalRecord)" class="risk-warning">
+            当前审核未通过或存在严重问题，建议修改合同后重新审核。如业务仍需推进，请在提交说明中写明原因。
+          </p>
+        </div>
+        <template #footer>
+          <el-button @click="approvalDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="approvalSubmitting" @click="confirmSubmitApproval">
+            提交审批
+          </el-button>
+        </template>
+      </el-dialog>
+
+      <!-- Detail dialog -->
+      <el-dialog
         v-model="drawerVisible"
         title="审核详情"
-        size="500px"
+        width="860px"
+        top="6vh"
+        class="audit-detail-dialog"
       >
         <template v-if="selectedRecord">
-          <div class="drawer-section">
-            <h4 class="drawer-title">合同信息</h4>
-            <el-descriptions :column="1" border size="small">
-              <el-descriptions-item label="合同名称">{{ selectedRecord.contract_name }}</el-descriptions-item>
-              <el-descriptions-item label="审核日期">{{ selectedRecord.created_at }}</el-descriptions-item>
-              <el-descriptions-item label="风险评分">
-                <span :style="{ color: getScoreColor(selectedRecord.risk_score), fontWeight: 600 }">
-                  {{ selectedRecord.risk_score }}分
-                </span>
-              </el-descriptions-item>
-              <el-descriptions-item label="发现问题">{{ selectedRecord.issues_count }}个</el-descriptions-item>
-              <el-descriptions-item label="审核状态">
-                <el-tag :type="getStatusTag(selectedRecord.status).type" size="small" round>
-                  {{ getStatusTag(selectedRecord.status).label }}
-                </el-tag>
-              </el-descriptions-item>
-            </el-descriptions>
+          <div class="audit-detail-body">
+            <div class="drawer-section">
+              <h4 class="drawer-title">合同信息</h4>
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="合同名称" :span="2">{{ selectedRecord.contract_name }}</el-descriptions-item>
+                <el-descriptions-item label="审核日期">{{ selectedRecord.created_at }}</el-descriptions-item>
+                <el-descriptions-item label="风险评分">
+                  <span :style="{ color: getScoreColor(selectedRecord.risk_score), fontWeight: 600 }">
+                    {{ selectedRecord.risk_score }}分
+                  </span>
+                </el-descriptions-item>
+                <el-descriptions-item label="发现问题">{{ selectedRecord.issues_count }}个</el-descriptions-item>
+                <el-descriptions-item label="审核状态">
+                  <el-tag :type="getStatusTag(selectedRecord.status).type" size="small" round>
+                    {{ getStatusTag(selectedRecord.status).label }}
+                  </el-tag>
+                </el-descriptions-item>
+              </el-descriptions>
+            </div>
+
+            <div class="drawer-section">
+              <h4 class="drawer-title">审批进度</h4>
+              <div class="approval-progress-panel">
+                <div class="progress-summary">
+                  <el-tag :type="getApprovalStatusTag(selectedRecord).type" size="small" round>
+                    {{ getApprovalStatusTag(selectedRecord).label }}
+                  </el-tag>
+                  <span>{{ approvalProgressText(selectedRecord) }}</span>
+                </div>
+                <div v-if="approvalGroups(selectedRecord).length" class="progress-groups">
+                  <div
+                    v-for="group in approvalGroups(selectedRecord)"
+                    :key="group.key"
+                    class="progress-group"
+                    :class="group.key"
+                  >
+                    <span class="group-title">{{ group.title }}</span>
+                    <span class="group-names">{{ group.names.join('、') }}</span>
+                  </div>
+                </div>
+                <div v-if="getApprovalProgress(selectedRecord)?.records?.length" class="progress-steps">
+                  <div
+                    v-for="record in getApprovalProgress(selectedRecord).records"
+                    :key="record.id"
+                    class="progress-step"
+                  >
+                    <span class="step-status" :class="record.status">{{ record.status === 'approved' ? '已通过' : record.status === 'rejected' ? '已驳回' : '待审批' }}</span>
+                    <span class="step-approver">{{ record.approver?.name || '-' }}</span>
+                    <span v-if="record.comment" class="step-comment">意见：{{ record.comment }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="drawer-section">
+              <h4 class="drawer-title">AI分析结果</h4>
+              <div class="analysis-text" v-html="renderMarkdown(selectedRecord.analysis)"></div>
+            </div>
+
+            <div class="drawer-section">
+              <h4 class="drawer-title">改进建议</h4>
+              <ul class="suggestion-list">
+                <li
+                  v-for="(s, i) in (typeof selectedRecord.suggestions === 'string' ? JSON.parse(selectedRecord.suggestions) : selectedRecord.suggestions)"
+                  :key="i"
+                  class="suggestion-item"
+                >
+                  {{ s }}
+                </li>
+              </ul>
+            </div>
           </div>
 
-          <div class="drawer-section">
-            <h4 class="drawer-title">AI分析结果</h4>
-            <div class="analysis-text" v-html="renderMarkdown(selectedRecord.analysis)"></div>
-          </div>
-
-          <div class="drawer-section">
-            <h4 class="drawer-title">改进建议</h4>
-            <ul class="suggestion-list">
-              <li
-                v-for="(s, i) in (typeof selectedRecord.suggestions === 'string' ? JSON.parse(selectedRecord.suggestions) : selectedRecord.suggestions)"
-                :key="i"
-                class="suggestion-item"
-              >
-                {{ s }}
-              </li>
-            </ul>
+        </template>
+        <template #footer>
+          <div class="drawer-actions">
+            <el-button @click="drawerVisible = false">关闭</el-button>
+            <el-button v-if="selectedRecord" @click="downloadTxtReport(selectedRecord)">下载 TXT 报告</el-button>
+            <el-button v-if="selectedRecord" @click="downloadPdfReport(selectedRecord)">下载 PDF 报告</el-button>
+            <el-button v-if="selectedRecord" type="primary" @click="openSubmitApproval(selectedRecord)">提交审批</el-button>
           </div>
         </template>
-      </el-drawer>
+      </el-dialog>
     </div>
   </PageTransition>
 </template>
@@ -685,20 +929,176 @@ function removeFile() {
   gap: 6px;
 }
 
+.approval-submit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.approval-summary {
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 0.8fr;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.approval-summary > div {
+  min-width: 0;
+}
+
+.summary-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.approval-summary strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 149, 0, 0.1);
+  color: #b45309;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.approval-progress-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.approval-progress-cell span:last-child {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approval-progress-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.78);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.progress-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.progress-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.progress-group.approved { background: rgba(22, 163, 74, 0.08); }
+.progress-group.pending { background: rgba(217, 119, 6, 0.08); }
+.progress-group.rejected { background: rgba(220, 38, 38, 0.08); }
+
+.group-title {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.group-names {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-step {
+  display: grid;
+  grid-template-columns: 72px 120px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+  font-size: 13px;
+}
+
+.step-status {
+  font-weight: 600;
+}
+
+.step-status.pending { color: #d97706; }
+.step-status.approved { color: #16a34a; }
+.step-status.rejected { color: #dc2626; }
+
+.step-approver {
+  color: var(--text-primary);
+}
+
+.step-comment {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Quick upload card */
 .quick-upload {
-  padding: 32px;
+  padding: 28px;
   margin-bottom: 20px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: border-color 0.2s ease, background 0.2s ease;
   border: 2px dashed rgba(0, 122, 255, 0.2);
 }
 
 .quick-upload:hover {
   border-color: var(--apple-blue);
   background: rgba(0, 122, 255, 0.03);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-hover);
 }
 
 .upload-placeholder {
@@ -763,6 +1163,22 @@ function removeFile() {
   overflow: hidden;
 }
 
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.row-actions .icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .score-cell {
   font-weight: 600;
 }
@@ -774,7 +1190,7 @@ function removeFile() {
 
 .drop-zone {
   border: 2px dashed rgba(0, 122, 255, 0.25);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   padding: 40px;
   display: flex;
   flex-direction: column;
@@ -860,7 +1276,13 @@ function removeFile() {
   line-height: 1.4;
 }
 
-/* Drawer */
+.audit-detail-body {
+  max-height: 68vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Detail dialog */
 .drawer-section {
   margin-bottom: 24px;
 }

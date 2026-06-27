@@ -8,6 +8,8 @@ export interface User {
   department?: string
   department_code?: string
   role?: Role
+  permissions?: Permission[]
+  customRoles?: Array<{ id: string; name: string; description?: string; isSystem?: boolean }>
   avatar?: string
   created_at?: string
 }
@@ -44,25 +46,35 @@ export type Permission =
   | 'storage'
   | 'projects'
   | 'procurement'
+  | 'assets'
+  | 'asset-purchase'
+  | 'asset-receiving'
+  | 'asset-inventory'
+  | 'asset-cost'
+  | 'asset-suppliers'
+  | 'asset-items'
+  | 'asset-reports'
   | 'approvals'
   | 'notifications'
   | 'roles'
   | 'approval-flows'
+  | 'asset-settings'
 
 // Role → permissions mapping
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  clerk: ['audit', 'projects', 'procurement'],
-  head: ['audit', 'dashboard', 'reminders', 'projects', 'procurement', 'approvals', 'notifications'],
+  clerk: ['audit', 'projects', 'procurement', 'assets', 'asset-purchase', 'asset-items', 'asset-suppliers'],
+  head: ['audit', 'dashboard', 'reminders', 'projects', 'procurement', 'assets', 'asset-purchase', 'asset-receiving', 'asset-inventory', 'asset-items', 'asset-suppliers', 'approvals', 'notifications'],
   admin: [
     'audit', 'dashboard', 'reminders', 'contracts',
     'statistics', 'settings', 'audit-config',
-    'projects', 'procurement', 'approvals', 'notifications',
+    'projects', 'procurement', 'assets', 'asset-purchase', 'asset-receiving', 'asset-inventory', 'asset-cost', 'asset-items', 'asset-suppliers', 'asset-reports', 'approvals', 'notifications',
   ],
   super_admin: [
     'audit', 'dashboard', 'reminders', 'contracts',
     'statistics', 'settings', 'users', 'audit-config',
     'departments', 'storage', 'projects', 'procurement',
-    'approvals', 'notifications', 'roles', 'approval-flows',
+    'assets', 'asset-purchase', 'asset-receiving', 'asset-inventory', 'asset-cost', 'asset-items', 'asset-suppliers', 'asset-reports',
+    'approvals', 'notifications', 'roles', 'approval-flows', 'asset-settings',
   ],
 }
 
@@ -76,6 +88,14 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/procurement': 'procurement',
   '/procurement/suppliers': 'procurement',
   '/procurement/purchase-orders': 'procurement',
+  '/assets': 'assets',
+  '/assets/purchase': 'asset-purchase',
+  '/assets/receiving': 'asset-receiving',
+  '/assets/inventory': 'asset-inventory',
+  '/assets/cost': 'asset-cost',
+  '/assets/suppliers': 'asset-suppliers',
+  '/assets/items': 'asset-items',
+  '/assets/reports': 'asset-reports',
   '/approvals': 'approvals',
   '/notifications': 'notifications',
   '/reminders': 'reminders',
@@ -87,4 +107,5 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/settings/approval-flows': 'approval-flows',
   '/settings/departments': 'departments',
   '/settings/storage': 'storage',
+  '/settings/asset-settings': 'asset-settings',
 }

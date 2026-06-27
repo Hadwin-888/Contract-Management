@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { CheckCheck } from 'lucide-vue-next'
@@ -8,6 +9,7 @@ import { fetchNotifications, markAsRead, markAllAsRead, fetchNotificationPrefere
 import type { Notification, NotificationPreference } from '@/api/notifications'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const notifications = ref<Notification[]>([])
 const total = ref(0)
@@ -73,6 +75,19 @@ async function handleMarkRead(n: Notification) {
   }
 }
 
+async function handleNotificationClick(n: Notification) {
+  await handleMarkRead(n)
+  if (n.module === 'approval' || n.type === 'approval') {
+    router.push('/approvals')
+  } else if (n.module === 'contract') {
+    router.push('/contracts')
+  } else if (n.module === 'procurement') {
+    router.push('/procurement')
+  } else if (n.module === 'project' && n.refId) {
+    router.push(`/projects/${n.refId}`)
+  }
+}
+
 async function openPreferences() {
   try {
     preferences.value = await fetchNotificationPreferences()
@@ -135,7 +150,7 @@ function formatTime(dateStr: string): string {
           :key="n.id"
           class="notification-item"
           :class="{ unread: !n.isRead }"
-          @click="handleMarkRead(n)"
+          @click="handleNotificationClick(n)"
         >
           <div class="notif-dot" v-if="!n.isRead" />
           <div class="notif-body">
