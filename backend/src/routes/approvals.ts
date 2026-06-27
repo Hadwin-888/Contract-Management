@@ -248,7 +248,7 @@ router.get('/pending', async (req: AuthRequest, res: Response) => {
           include: { owner: { select: { id: true, name: true } } },
         })
       : [];
-    const projectMap = new Map(projects.map((project) => [project.id, project]));
+    const projectMap = new Map(projects.map((p) => [p.id, p as any]));
     const tasks = taskIds.length > 0
       ? await prisma.task.findMany({
           where: { id: { in: taskIds } },
@@ -262,83 +262,88 @@ router.get('/pending', async (req: AuthRequest, res: Response) => {
           },
         })
       : [];
-    const taskMap = new Map(tasks.map((task) => [task.id, task]));
+    const taskMap = new Map(tasks.map((t) => [t.id, t as any]));
     const assetChanges = assetChangeIds.length > 0
       ? await prisma.assetChangeRequest.findMany({
           where: { id: { in: assetChangeIds } },
           include: { requester: { select: { id: true, name: true } } },
         })
       : [];
-    const assetChangeMap = new Map(assetChanges.map((change) => [change.id, change]));
+    const assetChangeMap = new Map(assetChanges.map((c) => [c.id, c as any]));
 
-    const result = items.map((item) => ({
-      id: item.id,
-      requestType: item.requestType,
-      requestId: item.requestId,
-      status: item.status,
-      comment: item.comment,
-      createdAt: item.createdAt,
-      submitNote: item.submitNote,
-      riskScore: item.riskScore,
-      criticalIssueCount: item.criticalIssueCount,
-      auditSnapshot: item.auditSnapshot,
-      title: item.requestType === 'procurement'
-        ? item.procurementRequest?.title || '采购申请'
-        : item.requestType === 'project_completion'
-          ? projectMap.get(item.requestId)?.name || '项目完成申请'
-          : item.requestType === 'task_completion'
-            ? taskMap.get(item.requestId)?.title || '任务完成申请'
-            : item.requestType === 'asset_item' || item.requestType === 'asset_supplier'
-              ? approvalEntityName(item.requestType)
-            : item.contract?.name || '合同',
-      requester: item.requestType === 'procurement'
-        ? item.procurementRequest?.requester
-        : item.requestType === 'project_completion'
-          ? projectMap.get(item.requestId)?.owner
-          : item.requestType === 'task_completion'
-            ? taskMap.get(item.requestId)?.assignee
-            : item.requestType === 'asset_item' || item.requestType === 'asset_supplier'
-              ? assetChangeMap.get(item.requestId)?.requester
-            : item.contract?.user ? { id: item.contract.user.id, name: item.contract.user.name } : null,
-      contract: item.requestType === 'contract' && item.contract ? {
-        id: item.contract.id,
-        name: item.contract.name,
-        filePath: item.contract.filePath,
-        amount: item.contract.amount,
-        partyB: item.contract.partyB,
-      } : null,
-      project: item.requestType === 'project_completion' && projectMap.get(item.requestId) ? {
-        id: projectMap.get(item.requestId)!.id,
-        name: projectMap.get(item.requestId)!.name,
-        status: projectMap.get(item.requestId)!.status,
-      } : item.requestType === 'task_completion' && taskMap.get(item.requestId)?.project ? {
-        id: taskMap.get(item.requestId)!.project.id,
-        name: taskMap.get(item.requestId)!.project.name,
-      } : null,
-      task: item.requestType === 'task_completion' && taskMap.get(item.requestId) ? {
-        id: taskMap.get(item.requestId)!.id,
-        title: taskMap.get(item.requestId)!.title,
-        description: taskMap.get(item.requestId)!.description,
-        status: taskMap.get(item.requestId)!.status,
-        projectId: taskMap.get(item.requestId)!.projectId,
-        priority: taskMap.get(item.requestId)!.priority,
-        progress: taskMap.get(item.requestId)!.progress,
-        startDate: taskMap.get(item.requestId)!.startDate,
-        dueDate: taskMap.get(item.requestId)!.dueDate,
-        completedAt: taskMap.get(item.requestId)!.completedAt,
-        completionNote: taskMap.get(item.requestId)!.completionNote,
-        completionSubmittedAt: taskMap.get(item.requestId)!.completionSubmittedAt,
-        assignee: taskMap.get(item.requestId)!.assignee,
-        files: taskMap.get(item.requestId)!.files,
-      } : null,
-      assetChange: (item.requestType === 'asset_item' || item.requestType === 'asset_supplier') && assetChangeMap.get(item.requestId) ? {
-        id: assetChangeMap.get(item.requestId)!.id,
-        entityType: assetChangeMap.get(item.requestId)!.entityType,
-        action: assetChangeMap.get(item.requestId)!.action,
-        payload: assetChangeMap.get(item.requestId)!.payload,
-        status: assetChangeMap.get(item.requestId)!.status,
-      } : null,
-    }));
+    const result = items.map((item) => {
+      const projectEntry = projectMap.get(item.requestId);
+      const taskEntry = taskMap.get(item.requestId);
+      const assetChangeEntry = assetChangeMap.get(item.requestId);
+      return {
+        id: item.id,
+        requestType: item.requestType,
+        requestId: item.requestId,
+        status: item.status,
+        comment: item.comment,
+        createdAt: item.createdAt,
+        submitNote: item.submitNote,
+        riskScore: item.riskScore,
+        criticalIssueCount: item.criticalIssueCount,
+        auditSnapshot: item.auditSnapshot,
+        title: item.requestType === 'procurement'
+          ? item.procurementRequest?.title || '采购申请'
+          : item.requestType === 'project_completion'
+            ? projectEntry?.name || '项目完成申请'
+            : item.requestType === 'task_completion'
+              ? taskEntry?.title || '任务完成申请'
+              : item.requestType === 'asset_item' || item.requestType === 'asset_supplier'
+                ? approvalEntityName(item.requestType)
+              : item.contract?.name || '合同',
+        requester: item.requestType === 'procurement'
+          ? item.procurementRequest?.requester
+          : item.requestType === 'project_completion'
+            ? projectEntry?.owner
+            : item.requestType === 'task_completion'
+              ? taskEntry?.assignee
+              : item.requestType === 'asset_item' || item.requestType === 'asset_supplier'
+                ? assetChangeEntry?.requester
+              : item.contract?.user ? { id: item.contract.user.id, name: item.contract.user.name } : null,
+        contract: item.requestType === 'contract' && item.contract ? {
+          id: item.contract.id,
+          name: item.contract.name,
+          filePath: item.contract.filePath,
+          amount: item.contract.amount,
+          partyB: item.contract.partyB,
+        } : null,
+        project: item.requestType === 'project_completion' && projectEntry ? {
+          id: projectEntry.id,
+          name: projectEntry.name,
+          status: projectEntry.status,
+        } : item.requestType === 'task_completion' && taskEntry?.project ? {
+          id: taskEntry.project.id,
+          name: taskEntry.project.name,
+        } : null,
+        task: item.requestType === 'task_completion' && taskEntry ? {
+          id: taskEntry.id,
+          title: taskEntry.title,
+          description: taskEntry.description,
+          status: taskEntry.status,
+          projectId: taskEntry.projectId,
+          priority: taskEntry.priority,
+          progress: taskEntry.progress,
+          startDate: taskEntry.startDate,
+          dueDate: taskEntry.dueDate,
+          completedAt: taskEntry.completedAt,
+          completionNote: taskEntry.completionNote,
+          completionSubmittedAt: taskEntry.completionSubmittedAt,
+          assignee: taskEntry.assignee,
+          files: taskEntry.files,
+        } : null,
+        assetChange: (item.requestType === 'asset_item' || item.requestType === 'asset_supplier') && assetChangeEntry ? {
+          id: assetChangeEntry.id,
+          entityType: assetChangeEntry.entityType,
+          action: assetChangeEntry.action,
+          payload: assetChangeEntry.payload,
+          status: assetChangeEntry.status,
+        } : null,
+      };
+    });
 
     res.json({ items: result, total, page, pageSize });
   } catch (error) {
